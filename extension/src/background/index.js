@@ -20,6 +20,14 @@ async function modelManifest() {
   return modelManifestPromise;
 }
 
+function validateManifest(manifest) {
+  const threshold = Number(manifest.threshold);
+  if (!manifest.version || !Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    throw new Error("model manifest has invalid version or threshold");
+  }
+  return { ...manifest, threshold };
+}
+
 async function imageIdFor(imageUrl, imageData) {
   const source = imageData || imageUrl;
   const bytes = new TextEncoder().encode(source);
@@ -63,7 +71,7 @@ async function analyze(message) {
 
   const request = (async () => {
     await ensureOffscreen();
-    const manifest = await modelManifest();
+    const manifest = validateManifest(await modelManifest());
     const imageId = await imageIdFor(imageUrl, imageData);
     const response = await chrome.runtime.sendMessage({
       kind: "aid:infer",
@@ -76,13 +84,18 @@ async function analyze(message) {
 
     const threshold = Number(manifest.threshold ?? 0.65);
     const score = Number(response.score);
+    if (!Number.isFinite(score) || score < 0 || score > 1) {
+      throw new Error("inference returned an invalid probability");
+    }
     const result = {
       score,
       label: score >= threshold ? "likely-ai" : "likely-real",
       threshold,
       modelVersion: manifest.version || MODEL_VERSION_FALLBACK,
       imageId,
-      processingTimeMs: Number(response.processingTimeMs),
+      processingTimeMs: Number.isFinite(Number(response.processingTimeMs))
+        ? Number(response.processingTimeMs)
+        : 0,
     };
     cachePut(key, result);
     return result;

@@ -43,7 +43,7 @@ jobs:
 
           const manifest = JSON.parse(await readFile("manifest.json", "utf8"));
           const modelManifest = JSON.parse(await readFile("model_manifest.json", "utf8"));
-          const modelPath = "src/background/model.onnx";
+          const modelPath = "src/background/w5810_best_fp16.onnx";
           const model = await readFile(modelPath);
           const hash = createHash("sha256").update(model).digest("hex");
 
@@ -64,17 +64,17 @@ jobs:
       - name: Package extension
         run: |
           mkdir -p ../dist
-          zip -r "../dist/etsy-pattern-detector-${GITHUB_SHA}.zip" . \
+          zip -r "../dist/ratethatslop-${GITHUB_SHA}.zip" . \
             -x "node_modules/*" "*.log"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: etsy-pattern-detector-${{ github.sha }}
-          path: dist/etsy-pattern-detector-${{ github.sha }}.zip
+          name: ratethatslop-${{ github.sha }}
+          path: dist/ratethatslop-${{ github.sha }}.zip
 
       - name: Attach ZIP to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/etsy-pattern-detector-${{ github.sha }}.zip
+          files: dist/ratethatslop-${{ github.sha }}.zip
