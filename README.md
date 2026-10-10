@@ -1,0 +1,1 @@
+# Detecting-and-Rating-Potential-AI-Slop-Pots---DRPAS-
