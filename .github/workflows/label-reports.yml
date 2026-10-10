@@ -1,1 +1,67 @@
-# Change note: Add the project-specific report-labeling workflow here.
+name: Label detector reports
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label-report:
+    if: contains(github.event.issue.labels.*.name, 'misclassification') || contains(github.event.issue.body, '### Expected result')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply report labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || "";
+            const labels = new Set(["misclassification"]);
+
+            if (/### Expected result\s*[\r\n]+Probably AI-generated/i.test(body)) {
+              labels.add("expected-ai");
+            } else if (/### Expected result\s*[\r\n]+Probably real/i.test(body)) {
+              labels.add("expected-real");
+            } else if (/### Expected result\s*[\r\n]+Uncertain/i.test(body)) {
+              labels.add("expected-uncertain");
+            }
+
+            if (/### Image type\s*[\r\n]+Sewing pattern cover or preview/i.test(body)) {
+              labels.add("sewing-pattern");
+            }
+
+            const existing = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100
+            });
+            const existingNames = new Set(existing.data.map((label) => label.name));
+
+            for (const name of labels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name,
+                  color: name === "misclassification" ? "d73a4a" : "ededed"
+                });
+              }
+
+              if (!existingNames.has(name)) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: [name]
+                });
+              }
+            }

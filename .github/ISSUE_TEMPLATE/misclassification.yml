@@ -1,2 +1,114 @@
-# Change note: Replace this placeholder with the project's Etsy-specific issue
-# form fields and reporting guidance.
+name: Misclassification report
+description: Report an incorrect AI-likelihood result for an Etsy listing image.
+title: "[misclassification] "
+labels:
+  - misclassification
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve RateThatSlop.
+
+        Please do not upload private, copyrighted, or personally identifying
+        material. A public Etsy listing URL and a description are preferred.
+        Do not include seller contact information beyond what is already public
+        on the listing.
+
+  - type: input
+    id: image-url
+    attributes:
+      label: Etsy listing or image URL
+      description: Provide the public Etsy listing URL, or the image URL if available.
+      placeholder: https://www.etsy.com/listing/...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: expected-result
+    attributes:
+      label: Expected result
+      options:
+        - Probably real
+        - Probably AI-generated
+        - Uncertain
+    validations:
+      required: true
+
+  - type: input
+    id: displayed-score
+    attributes:
+      label: Displayed AI-likelihood score
+      description: Enter the score shown by the extension, if available.
+      placeholder: "0.82"
+    validations:
+      required: false
+
+  - type: input
+    id: model-version
+    attributes:
+      label: Model version
+      description: Copy the model version shown by the extension.
+      placeholder: w5810-2026-08-30
+    validations:
+      required: false
+
+  - type: dropdown
+    id: image-type
+    attributes:
+      label: Image type
+      options:
+        - Sewing pattern cover or preview
+        - Product mockup
+        - Fabric or materials photo
+        - Screenshot or text-heavy image
+        - Lifestyle or studio photo
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to reproduce
+      description: Explain how to reach the listing and what the extension displayed.
+      placeholder: |
+        1. Open the Etsy listing.
+        2. Wait for the image scan to finish.
+        3. The extension displayed ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and additional context
+      description: Explain why the result appears incorrect. Do not upload private material.
+    validations:
+      required: true
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension version
+      placeholder: "0.1.0"
+    validations:
+      required: false
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome 140
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy-confirmation
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I have removed private or personally identifying information from this report.
+          required: true
+        - label: I understand this report may be public and may be used to improve the detector.
+          required: true

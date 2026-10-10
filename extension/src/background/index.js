@@ -1,216 +1,131 @@
-// Change note: Keep model loading and inference here, then adapt message
-// handling for Etsy scans and pasted images.
+// Model orchestration service: owns the cache and forwards image requests to
+// the offscreen document, where ONNX Runtime can decode and process images.
 
-// Service worker: orchestrates analysis requests from content scripts.
-// Inference itself runs in the offscreen document (WebGPU/WASM live there).
-
-const OFFSCREEN_URL = "src/offscreen.html";
-
-const cache = new Map(); // url -> {score, ms, tta}
+const OFFSCREEN_URL = "src/background/offscreen.html";
+const MODEL_VERSION_FALLBACK = "unknown";
 const CACHE_MAX = 3000;
-const inflight = new Map(); // url -> Promise
-
-// The installed weights' version (OPFS meta): cache entries are only valid
-// for the model that produced them.
-async function installedModelVersion() {
-  try {
-    const root = await navigator.storage.getDirectory();
-    const fh = await root.getFileHandle("model_meta.json");
-    return JSON.parse(await (await fh.getFile()).text()).version || null;
-  } catch {
-    return null;
-  }
-}
-
-// The in-memory cache dies with every MV3 service-worker restart; mirror it in
-// session storage (survives restarts, cleared when the browser closes) so
-// features like report-prefill still know recent verdicts. The mirror is
-// stamped with the model version that produced it: restoring scores from an
-// older model would resurrect stale verdicts across SW restarts (the bug
-// behind immortal wrong badges — a cache.clear() alone doesn't reach the
-// mirror).
-async function restoreCacheMirror() {
-  try {
-    const [d, ver] = await Promise.all([
-      chrome.storage.session.get(["aidCache", "aidCacheVer"]),
-      installedModelVersion(),
-    ]);
-    // no stamp = written by pre-0.8.2 code or unknown provenance: drop it too
-    if (!d.aidCacheVer || (ver && d.aidCacheVer !== ver)) {
-      await chrome.storage.session.remove(["aidCache", "aidCacheVer"]).catch(() => {});
-      return;
-    }
-    for (const [k, v] of d.aidCache || []) if (!cache.has(k)) cache.set(k, v);
-  } catch {}
-}
-restoreCacheMirror();
-// e2e hooks
-globalThis.__aidRestoreCacheMirror = restoreCacheMirror;
-globalThis.__aidCacheDump = () => [...cache.entries()];
-let persistTimer = null;
-function schedulePersist() {
-  clearTimeout(persistTimer);
-  persistTimer = setTimeout(async () => {
-    const ver = await installedModelVersion();
-    chrome.storage.session.set({
-      aidCache: [...cache.entries()].slice(-1000),
-      aidCacheVer: ver,
-    }).catch(() => {});
-  }, 2000);
-}
-
-// Report-path lookup: exact URL, else same asset ignoring the query string
-// (CDNs serve size variants like twitter's ?name=small/large).
-function cacheLookup(url) {
-  if (cache.has(url)) return cache.get(url);
-  const base = url.split("?")[0];
-  for (const [k, v] of cache) {
-    if (k.split("?")[0] === base) return v;
-  }
-  return null;
-}
-
+const cache = new Map();
+const inflight = new Map();
 let offscreenReady = null;
+let modelManifestPromise = null;
+
+async function modelManifest() {
+  if (!modelManifestPromise) {
+    modelManifestPromise = fetch(chrome.runtime.getURL("model_manifest.json"))
+      .then((response) => {
+        if (!response.ok) throw new Error(`model manifest fetch failed: ${response.status}`);
+        return response.json();
+      });
+  }
+  return modelManifestPromise;
+}
+
+function validateManifest(manifest) {
+  const threshold = Number(manifest.threshold);
+  if (!manifest.version || !Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    throw new Error("model manifest has invalid version or threshold");
+  }
+  return { ...manifest, threshold };
+}
+
+async function imageIdFor(imageUrl, imageData) {
+  const source = imageData || imageUrl;
+  const bytes = new TextEncoder().encode(source);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 async function ensureOffscreen() {
   if (!offscreenReady) {
     offscreenReady = (async () => {
-      const has = await chrome.offscreen.hasDocument();
-      if (!has) {
+      if (!(await chrome.offscreen.hasDocument())) {
         await chrome.offscreen.createDocument({
           url: OFFSCREEN_URL,
           reasons: ["WORKERS"],
-          justification: "Runs local ML inference (ONNX Runtime Web, WebGPU/WASM) on images.",
+          justification: "Runs local ONNX image inference without uploading images.",
         });
       }
-    })();
+    })().catch((error) => {
+      offscreenReady = null;
+      throw error;
+    });
   }
   return offscreenReady;
 }
 
-function cachePut(url, result) {
-  if (cache.size >= CACHE_MAX) {
-    const first = cache.keys().next().value;
-    cache.delete(first);
-  }
-  cache.set(url, result);
-  schedulePersist();
+function cachePut(key, value) {
+  if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+  cache.set(key, value);
 }
 
-async function analyze(url) {
-  if (cache.has(url)) return cache.get(url);
-  if (inflight.has(url)) return inflight.get(url);
-  const p = (async () => {
+async function analyze(message) {
+  const imageUrl = typeof message.imageUrl === "string" ? message.imageUrl : "";
+  const imageData = typeof message.imageData === "string" ? message.imageData : "";
+  if (!imageUrl && !imageData) throw new Error("imageUrl or imageData is required");
+
+  const key = imageUrl || imageData;
+  if (cache.has(key)) return cache.get(key);
+  if (inflight.has(key)) return inflight.get(key);
+
+  const request = (async () => {
     await ensureOffscreen();
-    const resp = await chrome.runtime.sendMessage({ kind: "aid:infer", url });
-    if (resp && resp.ok) {
-      const result = { score: resp.score, ms: resp.ms, tta: !!resp.tta, degraded: !!resp.degraded, quality: resp.quality || null };
-      cachePut(url, result);
-      return result;
+    const manifest = validateManifest(await modelManifest());
+    const imageId = await imageIdFor(imageUrl, imageData);
+    const response = await chrome.runtime.sendMessage({
+      kind: "aid:infer",
+      imageUrl,
+      imageData,
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "inference failed");
     }
-    return { error: resp ? resp.error : "no response" };
-  })().finally(() => inflight.delete(url));
-  inflight.set(url, p);
-  return p;
+
+    const threshold = Number(manifest.threshold ?? 0.65);
+    const score = Number(response.score);
+    if (!Number.isFinite(score) || score < 0 || score > 1) {
+      throw new Error("inference returned an invalid probability");
+    }
+    const result = {
+      score,
+      label: score >= threshold ? "likely-ai" : "likely-real",
+      threshold,
+      modelVersion: manifest.version || MODEL_VERSION_FALLBACK,
+      imageId,
+      processingTimeMs: Number.isFinite(Number(response.processingTimeMs))
+        ? Number(response.processingTimeMs)
+        : 0,
+    };
+    cachePut(key, result);
+    return result;
+  })().finally(() => inflight.delete(key));
+
+  inflight.set(key, request);
+  return request;
 }
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg?.kind === "aid:analyze") {
-    analyze(msg.url).then(sendResponse);
-    return true; // async
-  }
-  if (msg?.kind === "aid:get-settings") {
-    // offscreen documents lack chrome.storage; serve settings from here
-    chrome.storage.sync.get({ forceWasm: false }, sendResponse);
-    return true;
-  }
-  if (msg?.kind === "aid:model-status") {
-    (async () => {
-      await ensureOffscreen();
-      const resp = await chrome.runtime.sendMessage({ kind: "aid:status" });
-      sendResponse(resp);
-    })();
-    return true;
-  }
-  if (msg?.kind === "aid:model-updated") {
-    // Setup page stored a (new) model; offscreen must reload its session.
-    (async () => {
-      await ensureOffscreen();
-      await chrome.runtime.sendMessage({ kind: "aid:reload-model" });
-      cache.clear();
-      // reach the session-storage mirror too, or the next SW restart
-      // resurrects scores produced by the previous model
-      await chrome.storage.session.remove(["aidCache", "aidCacheVer"]).catch(() => {});
-      sendResponse({ ok: true });
-    })();
-    return true;
-  }
-  return false;
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.kind !== "aid:analyze") return false;
+  analyze(message)
+    .then((result) => sendResponse({ ok: true, result }))
+    .catch((error) => sendResponse({ ok: false, error: error.message }));
+  return true;
 });
 
-// The model in OPFS may predate the manifest bundled with this build:
-// extension updates ship a new pinned model URL, but the download itself
-// stays user-initiated (setup page), so detect the mismatch and prompt.
-async function modelOutdated() {
-  try {
-    const bundled = await (await fetch(chrome.runtime.getURL("model_manifest.json"))).json();
-    const root = await navigator.storage.getDirectory();
-    const fh = await root.getFileHandle("model_meta.json");
-    const meta = JSON.parse(await (await fh.getFile()).text());
-    return !!bundled.version && meta.version !== bundled.version;
-  } catch {
-    return false; // nothing stored yet — the install flow covers that
-  }
-}
-globalThis.__aidModelOutdated = modelOutdated; // e2e hook
-
-chrome.runtime.onInstalled.addListener(async (details) => {
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: "aid-check-image",
-      title: "Sieve: check this image",
-      contexts: ["image"],
-    });
-    chrome.contextMenus.create({
-      id: "aid-report",
-      title: "Sieve: report misclassification…",
-      contexts: ["image"],
-    });
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "aid-check-image",
+    title: "Analyze image locally",
+    contexts: ["image"],
   });
-  if (details.reason === "install") {
-    chrome.tabs.create({ url: chrome.runtime.getURL("src/setup.html") });
-  } else if (details.reason === "update" && (await modelOutdated())) {
-    chrome.tabs.create({ url: chrome.runtime.getURL("src/setup.html?update=1") });
-  }
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "aid-check-image" && tab?.id && info.srcUrl) {
-    chrome.tabs.sendMessage(tab.id, { kind: "aid:check-image", srcUrl: info.srcUrl });
-  }
-  if (info.menuItemId === "aid-report" && info.srcUrl) {
-    // Privacy by construction: reporting opens a public GitHub issue form the
-    // user can read and edit BEFORE submitting. The extension itself sends
-    // nothing anywhere.
-    const cached = cacheLookup(info.srcUrl);
-    // GitHub issue forms only prefill input/textarea fields (not dropdowns),
-    // and want %20 rather than "+" for spaces — encode manually.
-    const band = !cached ? "not analyzed"
-      : cached.score >= 0.65 ? "flagged as AI"
-      : cached.score >= 0.5 ? "unsure"
-      : "low score";
-    const fields = {
-      template: "misclassification.yml",
-      title: "[misclassification] ",
-      "image-url": info.srcUrl,
-      "sieve-verdict": cached
-        ? `${band} — score ${(cached.score * 100).toFixed(1)}%${cached.tta ? " (TTA)" : ""}`
-        : "not analyzed",
-      "model-version": chrome.runtime.getManifest().version,
-    };
-    const q = Object.entries(fields).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-    chrome.tabs.create({
-      url: `https://github.com/Phineas1500/sieve-ai-image-detector/issues/new?${q}`,
-    });
+  if (info.menuItemId === "aid-check-image" && info.srcUrl && tab?.id) {
+    chrome.tabs.sendMessage(tab.id, {
+      kind: "aid:check-image",
+      srcUrl: info.srcUrl,
+    }).catch(() => {});
   }
 });
