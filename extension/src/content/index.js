@@ -1,6 +1,7 @@
 const MAX_IMAGES = 100;
 const ETSY_HOST_RE = /(^|\.)etsy\.com$/i;
 const IGNORED_IMAGE_RE = /(avatar|icon|logo|sprite|badge|favicon|profile|shop[_-]?owner)/i;
+const ETSY_IMAGE_HOST_RE = /(^|\.)etsystatic\.com$/i;
 const analyzedResults = new Map();
 const inFlightImages = new Set();
 let pageScanPromise = null;
@@ -20,7 +21,8 @@ function getImageUrl(img) {
 
 function isListingImage(img) {
   const url = getImageUrl(img);
-  if (!/^https?:\/\//i.test(url) || IGNORED_IMAGE_RE.test(url)) return false;
+  const hostname = url.match(/^https?:\/\/([^/?#]+)/i)?.[1] || "";
+  if (!ETSY_IMAGE_HOST_RE.test(hostname) || IGNORED_IMAGE_RE.test(url)) return false;
 
   const width = Number(img.naturalWidth || img.width || img.getAttribute("width") || 0);
   const height = Number(img.naturalHeight || img.height || img.getAttribute("height") || 0);
@@ -28,9 +30,27 @@ function isListingImage(img) {
 }
 
 function getListingImages(doc = document) {
+  const scopedImages = doc.querySelectorAll(
+    ".listing-page-image-carousel-component [data-palette-listing-image] img, " +
+    ".listing-page-image-carousel-component [data-listing-image] img",
+  );
+  if (scopedImages.length) return collectImages(scopedImages);
+
+  const productImages = doc.querySelectorAll(
+    'img[data-perf-group="main-product-image"], ' +
+    'img[data-perf-group="secondary-product-image"]',
+  );
+  return collectImages(productImages);
+}
+
+function getAnalyzableImages(doc = document) {
+  return collectImages(doc.querySelectorAll("img"));
+}
+
+function collectImages(imageElements) {
   const seen = new Set();
   const images = [];
-  for (const img of doc.querySelectorAll("img")) {
+  for (const img of imageElements) {
     if (!isListingImage(img)) continue;
     const url = getImageUrl(img);
     if (seen.has(url)) continue;
@@ -50,6 +70,7 @@ function getText(doc, selectors) {
       : element.textContent;
     if (value?.trim()) return value.trim();
   }
+
   return "";
 }
 
@@ -67,9 +88,22 @@ function collectPageData(doc = document, location = window.location) {
     ok: true,
     listing: {
       images: getListingImages(doc),
+      analyzableImages: getAnalyzableImages(doc),
       title: getText(doc, ["h1", "[data-listing-title]", "[data-title]", 'meta[property="og:title"]']),
-      seller: getText(doc, ["[data-shop-name]", "[data-seller-name]", ".shop-name", ".shop-name-text"]),
-      price: getText(doc, ['[data-price]', ".currency-value", ".price"]),
+      seller: getText(doc, [
+        "[data-seller-cred-anchor]",
+        "[data-shop-name]",
+        "[data-seller-name]",
+        ".shop-name",
+        ".shop-name-text",
+      ]),
+      price: getText(doc, [
+        '[data-price]',
+        ".wt-text-title-larger .currency-value",
+        ".wt-text-title-larger",
+        ".currency-value",
+        ".price",
+      ]).replace(/^price:\s*/i, ""),
       listingId: getListingId(doc, location),
       pageUrl: location.href,
     },
@@ -107,6 +141,7 @@ function scrapePostIdentity(doc = document, location = window.location) {
 function scrapeProductInformation(doc = document) {
   return {
     description: getAllText(doc, [
+      "[data-product-details-description-text-content]",
       '[data-testid="listing-page-description"]',
       '[data-listing-description]',
       '[data-testid="description"]',
@@ -114,10 +149,9 @@ function scrapeProductInformation(doc = document) {
       'meta[property="og:description"]',
     ]),
     instructions: getAllText(doc, [
+      '[data-product-details-description-text-content]',
       '[data-testid*="instruction"]',
       '[data-testid*="details"]',
-      '[class*="instruction"]',
-      '[class*="details"]',
     ]),
     attributes: getAllText(doc, [
       '[data-testid="listing-attribute"]',
@@ -130,7 +164,7 @@ function scrapeProductInformation(doc = document) {
 function scrapeReviewsAndImages(doc = document) {
   const reviews = [];
   const reviewElements = doc.querySelectorAll(
-    '[data-review-id], [data-testid*="review"], [class*="review"]',
+    '[data-review-id], [data-review-text], [data-testid="review"]',
   );
   for (const element of reviewElements) {
     const text = element.textContent?.replace(/\s+/g, " ").trim();
@@ -141,13 +175,12 @@ function scrapeReviewsAndImages(doc = document) {
     if (reviews.length >= 100) break;
   }
   return {
-    ratings: getAllText(doc, [
-      '[data-rating]',
-      '[aria-label*="rating" i]',
-      '[aria-label*="star" i]',
-    ], 2000),
+    ratings: getAllText(doc, [".reviews-header-ratings"], 2000),
     reviews,
     images: getListingImages(doc),
+    reviewImages: collectImages(doc.querySelectorAll(
+      '[data-location="customer-photo-section"] img',
+    )),
   };
 }
 
@@ -267,7 +300,15 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   const scan = () => {
     const data = collectPageData();
-    if (data.ok && data.listing.images.length) analyzePageImages(data);
+    if (data.ok && data.listing.analyzableImages.length) {
+      analyzePageImages({
+        ...data,
+        listing: {
+          ...data.listing,
+          images: data.listing.analyzableImages,
+        },
+      });
+    }
     if (isListingPage() && getListingId(document, window.location)) {
       chrome.runtime.sendMessage({ kind: "aid:scrape-post", post: scrapePostPage() })
         .catch(() => {});

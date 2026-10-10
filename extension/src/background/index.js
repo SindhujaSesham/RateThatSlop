@@ -196,11 +196,13 @@ async function scrapePost(message) {
   const existing = await chrome.storage.local.get(storageKey);
   if (existing[storageKey]) return { ok: true, skipped: "already-scraped" };
 
-  const images = Array.isArray(post.reviewsAndImages?.images)
-    ? post.reviewsAndImages.images
+  const listingImages = Array.isArray(post.reviewsAndImages?.images)
+    ? post.reviewsAndImages.images : [];
+  const reviewImages = Array.isArray(post.reviewsAndImages?.reviewImages)
+    ? post.reviewsAndImages.reviewImages : [];
+  const images = [...listingImages, ...reviewImages]
       .map((image) => image?.url)
       .filter((url) => typeof url === "string" && /^https?:\/\//i.test(url))
-    : [];
   let imageIds = [];
   if (images.length) {
     await ensureOffscreen();
