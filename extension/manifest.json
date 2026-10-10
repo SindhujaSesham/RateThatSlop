@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RateThatSlop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Detects potentially AI-generated sewing-pattern listing images locally in the browser.",
   "permissions": [
     "activeTab",
@@ -10,7 +10,8 @@
     "offscreen"
   ],
   "host_permissions": [
-    "*://*.etsy.com/*"
+    "*://*.etsy.com/*",
+    "*://*.etsystatic.com/*"
   ],
   "background": {
     "service_worker": "src/background/index.js",
