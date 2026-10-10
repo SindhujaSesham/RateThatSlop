@@ -93,6 +93,15 @@ async function scanCurrentPage() {
     pageSummary.textContent = listing.title
       ? `${listing.title} · ${listing.images.length} image${listing.images.length === 1 ? "" : "s"}`
       : `${listing.images.length} listing image${listing.images.length === 1 ? "" : "s"} found`;
+    const storedScore = listing.listingId
+      ? await chrome.runtime.sendMessage({
+        kind: "aid:get-listing-score",
+        listingId: listing.listingId,
+      })
+      : null;
+    if (storedScore?.ok && storedScore.available && storedScore.score?.overall !== null) {
+      pageSummary.textContent += ` · Stored listing rating: ${(storedScore.score.overall * 100).toFixed(1)}%`;
+    }
     if (!listing.images.length) {
       pageSummary.textContent += ". No suitable images were found.";
       return;

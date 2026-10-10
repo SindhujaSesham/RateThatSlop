@@ -1,5 +1,14 @@
 // Model orchestration service: owns the cache and forwards image requests to
 // the offscreen document, where ONNX Runtime can decode and process images.
+import { apiClient } from "./api-client.js";
+import { getAccessToken } from "./auth.js";
+import {
+  cacheListing,
+  getCachedListing,
+  isFresh,
+  listingKey,
+  normalizeServerScore,
+} from "./listing-cache.js";
 
 const OFFSCREEN_URL = "src/background/offscreen.html";
 const MODEL_VERSION_FALLBACK = "unknown";
@@ -10,6 +19,7 @@ const POST_STORAGE_PREFIX = "post:";
 const SCRAPING_ENABLED_KEY = "scrapingEnabled";
 const cache = new Map();
 const inflight = new Map();
+const serverListingInflight = new Map();
 let offscreenReady = null;
 let modelManifestPromise = null;
 
@@ -128,13 +138,15 @@ async function analyze(message) {
     ? message.imageHash
     : await hashImageInputs(imageUrl, imageData);
   const key = cacheKeyFor(imageHash);
+  const manifest = validateManifest(await modelManifest());
+  const serverResult = await serverImageResult(message, imageHash, manifest);
+  if (serverResult) return serverResult;
   const cached = await cacheGet(key);
   if (cached) return cached;
   if (inflight.has(key)) return inflight.get(key);
 
   const request = (async () => {
     await ensureOffscreen();
-    const manifest = validateManifest(await modelManifest());
     const response = await chrome.runtime.sendMessage({
       kind: "aid:infer",
       imageUrl,
@@ -169,6 +181,43 @@ async function analyze(message) {
 
   inflight.set(key, request);
   return request;
+}
+
+async function serverListing(message) {
+  const listingId = typeof message?.meta?.listingId === "string"
+    ? message.meta.listingId : "";
+  if (!listingId || !(await getAccessToken())) return null;
+  const key = listingKey("etsy", listingId);
+  if (!key) return null;
+  const cached = await getCachedListing(key);
+  if (cached?.calculatedAt && isFresh(cached.calculatedAt)) return cached;
+  if (serverListingInflight.has(key)) return serverListingInflight.get(key);
+
+  const request = apiClient.getListingScore("etsy", listingId)
+    .then((response) => normalizeServerScore(response))
+    .then((score) => score ? cacheListing(key, score) : null)
+    .catch(() => null)
+    .finally(() => serverListingInflight.delete(key));
+  serverListingInflight.set(key, request);
+  return request;
+}
+
+async function serverImageResult(message, imageHash, manifest) {
+  const listing = await serverListing(message);
+  const image = listing?.images.find((candidate) => candidate.imageId === imageHash);
+  if (!image) return null;
+  const threshold = Number(manifest.threshold ?? 0.65);
+  return {
+    score: image.score,
+    label: image.score >= threshold ? "likely-ai" : "likely-real",
+    threshold,
+    modelVersion: image.modelVersion,
+    imageId: image.imageId,
+    processingTimeMs: 0,
+    source: "server",
+    calculatedAt: listing.calculatedAt,
+    listingRating: listing.overall,
+  };
 }
 
 function compactAiRating(value) {
@@ -230,6 +279,26 @@ async function scrapePost(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.kind === "aid:get-listing-score") {
+    serverListing({ meta: {
+      listingId: message.listingId,
+    } })
+      .then((score) => sendResponse({ ok: true, available: Boolean(score), score }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:submit-score") {
+    apiClient.submitListingScore(message.payload)
+      .then((score) => sendResponse({ ok: true, score }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:evaluate-description") {
+    apiClient.evaluateDescription(message.description)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.kind === "aid:scrape-post") {
     scrapePost(message)
       .then((result) => sendResponse(result))

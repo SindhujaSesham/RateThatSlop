@@ -1,9 +1,52 @@
 const express = require("express");
 const supabase = require("../config/supabase");
+const requireAuth = require("../middleware/auth");
 
 const router = express.Router();
 
-router.get("/:platform/:listingId", async (req, res) => {
+function readScoreInput(body) {
+    const { platform, listingId, listingUrl, title, score, images } = body || {};
+    if (typeof platform !== "string" || !platform.trim() ||
+        typeof listingId !== "string" || !listingId.trim() ||
+        !score || typeof score !== "object" || Array.isArray(score) ||
+        !Array.isArray(images) || images.length > 100) {
+        return { error: "platform, listingId, score, and up to 100 images are required" };
+    }
+    const numericFields = [
+        "totalImageScore", "descriptionScore", "userReportsScore",
+        "etsyReviewScore", "trustedCreatorScore", "aggregateScore"
+    ];
+    for (const field of numericFields) {
+        if (score[field] !== undefined &&
+            (typeof score[field] !== "number" || score[field] < 0 || score[field] > 1)) {
+            return { error: `${field} must be a number between 0 and 1` };
+        }
+    }
+    const validImages = images.map((image, index) => ({
+        imageIndex: index + 1,
+        imageHash: image?.imageHash,
+        imageUrl: typeof image?.imageUrl === "string" ? image.imageUrl.slice(0, 2000) : null,
+        aiScore: image?.aiScore,
+        modelVersion: typeof image?.modelVersion === "string" ? image.modelVersion.slice(0, 80) : null
+    }));
+    if (validImages.some((image) =>
+        typeof image.imageHash !== "string" || !image.imageHash ||
+        typeof image.aiScore !== "number" || image.aiScore < 0 || image.aiScore > 1)) {
+        return { error: "each image requires an imageHash and aiScore between 0 and 1" };
+    }
+    return {
+        value: {
+            platform: platform.trim(),
+            listingId: listingId.trim(),
+            listingUrl: typeof listingUrl === "string" ? listingUrl.slice(0, 2000) : null,
+            title: typeof title === "string" ? title.slice(0, 500) : null,
+            score,
+            images: validImages
+        }
+    };
+}
+
+router.get("/:platform/:listingId", requireAuth, async (req, res) => {
     const { platform, listingId } = req.params;
 
     try {
@@ -58,6 +101,63 @@ router.get("/:platform/:listingId", async (req, res) => {
     } catch (error) {
         console.error("Score retrieval failed:", error.message);
         res.status(500).json({ error: "Failed to retrieve score" });
+    }
+});
+
+router.post("/", requireAuth, async (req, res) => {
+    const parsed = readScoreInput(req.body);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const input = parsed.value;
+    try {
+        const { data: pattern, error: patternError } = await supabase
+            .from("patterns")
+            .upsert({
+                source_platform: input.platform,
+                external_listing_id: input.listingId,
+                listing_url: input.listingUrl,
+                title: input.title
+            }, { onConflict: "source_platform,external_listing_id" })
+            .select("id, source_platform, external_listing_id, listing_url, title")
+            .single();
+        if (patternError) throw patternError;
+
+        const { data: snapshot, error: snapshotError } = await supabase
+            .from("score_snapshots")
+            .insert({
+                pattern_id: pattern.id,
+                total_image_score: input.score.totalImageScore ?? null,
+                description_score: input.score.descriptionScore ?? null,
+                user_reports_score: input.score.userReportsScore ?? null,
+                etsy_review_score: input.score.etsyReviewScore ?? null,
+                trusted_creator_score: input.score.trustedCreatorScore ?? null,
+                aggregate_score: input.score.aggregateScore ?? null,
+                model_version: typeof input.score.modelVersion === "string"
+                    ? input.score.modelVersion.slice(0, 80) : null,
+                scoring_version: typeof input.score.scoringVersion === "string"
+                    ? input.score.scoringVersion.slice(0, 80) : null
+            })
+            .select("id, aggregate_score, model_version, scoring_version, calculated_at")
+            .single();
+        if (snapshotError) throw snapshotError;
+
+        if (input.images.length) {
+            const { error: imagesError } = await supabase
+                .from("image_analyses")
+                .insert(input.images.map((image) => ({
+                    snapshot_id: snapshot.id,
+                    image_index: image.imageIndex,
+                    image_url: image.imageUrl,
+                    image_hash: image.imageHash,
+                    ai_score: image.aiScore,
+                    model_version: image.modelVersion
+                })));
+            if (imagesError) throw imagesError;
+        }
+
+        res.status(201).json({ pattern, score: snapshot, imageCount: input.images.length });
+    } catch (error) {
+        console.error("Score submission failed:", error.message);
+        res.status(500).json({ error: "Failed to save score" });
     }
 });
 

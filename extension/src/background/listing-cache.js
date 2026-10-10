@@ -1,17 +1,47 @@
-/*
- * Planned responsibility:
- * Cache server-provided listing records and ratings locally so repeated page
- * visits do not require unnecessary requests or local inference.
- *
- * Implementation notes:
- * - Use a stable Etsy listing identity, preferably the canonical listing URL
- *   or listing ID, rather than an individual image URL.
- * - Store source, calculated-at time, model/rating version, signal metadata,
- *   and freshness information with each cached record.
- * - Validate cached records before use and define an explicit expiration
- *   policy.
- * - Fall back to local image inference when the record is missing, stale,
- *   invalid, or unavailable to an unsigned user.
- * - Keep cache contents minimal and clear account-scoped data on logout when
- *   required by the server privacy policy.
- */
+const STORAGE_KEY = "serverListingCache";
+const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function listingKey(platform, listingId) {
+  if (typeof platform !== "string" || !platform.trim() ||
+      typeof listingId !== "string" || !listingId.trim()) return null;
+  return `${platform.trim().toLowerCase()}:${listingId.trim()}`;
+}
+
+export function isFresh(calculatedAt, maxAgeMs = DEFAULT_MAX_AGE_MS, now = Date.now()) {
+  const time = Date.parse(calculatedAt || "");
+  return Number.isFinite(time) && time <= now && now - time <= maxAgeMs;
+}
+
+export function normalizeServerScore(response) {
+  const score = response?.score;
+  if (!score || typeof score !== "object" || !isFresh(score.calculated_at)) return null;
+  const images = Array.isArray(score.images) ? score.images.filter((image) =>
+    typeof image?.image_hash === "string" &&
+    Number.isFinite(Number(image.ai_score)) &&
+    Number(image.ai_score) >= 0 && Number(image.ai_score) <= 1
+  ) : [];
+  return {
+    overall: Number.isFinite(Number(score.aggregate_score)) ? Number(score.aggregate_score) : null,
+    calculatedAt: score.calculated_at,
+    modelVersion: typeof score.model_version === "string" ? score.model_version : "server",
+    images: images.map((image) => ({
+      imageId: image.image_hash,
+      score: Number(image.ai_score),
+      modelVersion: image.model_version || score.model_version || "server",
+      analyzedAt: image.analyzed_at || score.calculated_at,
+    })),
+  };
+}
+
+export async function getCachedListing(key) {
+  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  return stored[STORAGE_KEY]?.[key] || null;
+}
+
+export async function cacheListing(key, value) {
+  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  await chrome.storage.local.set({
+    [STORAGE_KEY]: { ...(stored[STORAGE_KEY] || {}), [key]: value },
+  });
+  return value;
+}
