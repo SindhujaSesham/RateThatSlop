@@ -1,4 +1,4 @@
-const MAX_IMAGES = 8;
+const MAX_IMAGES = 20;
 const ETSY_HOST_RE = /(^|\.)etsy\.com$/i;
 const IGNORED_IMAGE_RE = /(avatar|icon|logo|sprite|badge|favicon|profile|shop[_-]?owner)/i;
 
