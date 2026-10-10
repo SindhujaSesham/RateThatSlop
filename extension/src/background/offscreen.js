@@ -47,6 +47,29 @@ async function getBlob(imageUrl, imageData) {
   return response.blob();
 }
 
+function toBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+async function imageHash(blob) {
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return toBase64Url(new Uint8Array(digest));
+}
+
+async function hashImage(imageUrl) {
+  return imageHash(await getBlob(imageUrl, ""));
+}
+
+async function hashImageInputs(imageUrl, imageData) {
+  if (!imageUrl && !imageData) throw new Error("imageUrl or imageData is required");
+  return imageHash(await getBlob(imageUrl, imageData));
+}
+
 async function decodeImage(blob) {
   const bitmap = await createImageBitmap(blob);
   if (bitmap.width < 32 || bitmap.height < 32) {
@@ -114,6 +137,7 @@ async function infer(imageUrl, imageData) {
     getManifest(),
     getBlob(imageUrl, imageData),
   ]);
+  const imageId = await imageHash(blob);
   const bitmap = await decodeImage(blob);
   try {
     const tensor = await imageToTensor(bitmap, manifest);
@@ -129,6 +153,7 @@ async function infer(imageUrl, imageData) {
     return {
       ok: true,
       score,
+      imageId,
       processingTimeMs: Math.round(performance.now() - started),
     };
   } finally {
@@ -137,6 +162,21 @@ async function infer(imageUrl, imageData) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.kind === "aid:hash-image") {
+    hashImageInputs(message.imageUrl, message.imageData)
+      .then((imageId) => sendResponse({ ok: true, imageId }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:hash-images") {
+    const imageUrls = Array.isArray(message.imageUrls)
+      ? message.imageUrls.filter((imageUrl) => typeof imageUrl === "string")
+      : [];
+    Promise.all(imageUrls.map(async (imageUrl) => [imageUrl, await hashImage(imageUrl)]))
+      .then((entries) => sendResponse({ ok: true, hashes: Object.fromEntries(entries) }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.kind !== "aid:infer") return false;
   infer(message.imageUrl, message.imageData)
     .then(sendResponse)

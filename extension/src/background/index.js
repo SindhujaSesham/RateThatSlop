@@ -4,6 +4,7 @@
 const OFFSCREEN_URL = "src/background/offscreen.html";
 const MODEL_VERSION_FALLBACK = "unknown";
 const CACHE_MAX = 3000;
+const CACHE_STORAGE_PREFIX = "inference:";
 const cache = new Map();
 const inflight = new Map();
 let offscreenReady = null;
@@ -28,13 +29,21 @@ function validateManifest(manifest) {
   return { ...manifest, threshold };
 }
 
-async function imageIdFor(imageUrl, imageData) {
-  const source = imageData || imageUrl;
-  const bytes = new TextEncoder().encode(source);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
+function cacheKeyFor(imageHash) {
+  return `sha256:${imageHash}`;
+}
+
+async function hashImageInputs(imageUrl, imageData) {
+  await ensureOffscreen();
+  const response = await chrome.runtime.sendMessage({
+    kind: "aid:hash-image",
+    imageUrl,
+    imageData,
+  });
+  if (!response?.ok || typeof response.imageId !== "string" || !response.imageId) {
+    throw new Error(response?.error || "image hashing failed");
+  }
+  return response.imageId;
 }
 
 async function ensureOffscreen() {
@@ -55,9 +64,56 @@ async function ensureOffscreen() {
   return offscreenReady;
 }
 
-function cachePut(key, value) {
-  if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+async function cacheGet(key) {
+  if (cache.has(key)) return cache.get(key);
+  const stored = await chrome.storage.local.get(`${CACHE_STORAGE_PREFIX}${key}`);
+  const value = stored[`${CACHE_STORAGE_PREFIX}${key}`];
+  if (value) cache.set(key, value);
+  return value;
+}
+
+async function cachePut(key, value) {
+  if (cache.size >= CACHE_MAX) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+    await chrome.storage.local.remove(`${CACHE_STORAGE_PREFIX}${oldestKey}`);
+  }
   cache.set(key, value);
+  await chrome.storage.local.set({ [`${CACHE_STORAGE_PREFIX}${key}`]: value });
+}
+
+async function cachedResultsFor(imageUrls) {
+  await ensureOffscreen();
+  const hashResponse = await chrome.runtime.sendMessage({
+    kind: "aid:hash-images",
+    imageUrls,
+  });
+  if (!hashResponse?.ok) {
+    throw new Error(hashResponse?.error || "image hashing failed");
+  }
+  const hashes = hashResponse.hashes || {};
+  const keys = imageUrls.map((imageUrl) =>
+    typeof hashes[imageUrl] === "string" ? cacheKeyFor(hashes[imageUrl]) : "",
+  );
+  const missingKeys = keys.filter((key) => !cache.has(key));
+  if (missingKeys.length) {
+    const stored = await chrome.storage.local.get(
+      missingKeys.map((key) => `${CACHE_STORAGE_PREFIX}${key}`),
+    );
+    for (const key of missingKeys) {
+      const value = stored[`${CACHE_STORAGE_PREFIX}${key}`];
+      if (value) cache.set(key, value);
+    }
+  }
+  const results = Object.fromEntries(
+    imageUrls
+      .map((imageUrl, index) => [imageUrl, {
+        hash: hashes[imageUrl],
+        result: cache.get(keys[index]),
+      }])
+      .filter(([, value]) => value.hash && value.result),
+  );
+  return { hashes, results };
 }
 
 async function analyze(message) {
@@ -65,14 +121,17 @@ async function analyze(message) {
   const imageData = typeof message.imageData === "string" ? message.imageData : "";
   if (!imageUrl && !imageData) throw new Error("imageUrl or imageData is required");
 
-  const key = imageUrl || imageData;
-  if (cache.has(key)) return cache.get(key);
+  const imageHash = typeof message.imageHash === "string"
+    ? message.imageHash
+    : await hashImageInputs(imageUrl, imageData);
+  const key = cacheKeyFor(imageHash);
+  const cached = await cacheGet(key);
+  if (cached) return cached;
   if (inflight.has(key)) return inflight.get(key);
 
   const request = (async () => {
     await ensureOffscreen();
     const manifest = validateManifest(await modelManifest());
-    const imageId = await imageIdFor(imageUrl, imageData);
     const response = await chrome.runtime.sendMessage({
       kind: "aid:infer",
       imageUrl,
@@ -81,6 +140,10 @@ async function analyze(message) {
     if (!response?.ok) {
       throw new Error(response?.error || "inference failed");
     }
+    if (typeof response.imageId !== "string" || !response.imageId) {
+      throw new Error("inference did not return an image hash");
+    }
+    const resultKey = cacheKeyFor(response.imageId);
 
     const threshold = Number(manifest.threshold ?? 0.65);
     const score = Number(response.score);
@@ -92,12 +155,12 @@ async function analyze(message) {
       label: score >= threshold ? "likely-ai" : "likely-real",
       threshold,
       modelVersion: manifest.version || MODEL_VERSION_FALLBACK,
-      imageId,
+      imageId: response.imageId,
       processingTimeMs: Number.isFinite(Number(response.processingTimeMs))
         ? Number(response.processingTimeMs)
         : 0,
     };
-    cachePut(key, result);
+    await cachePut(resultKey, result);
     return result;
   })().finally(() => inflight.delete(key));
 
@@ -106,6 +169,15 @@ async function analyze(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.kind === "aid:cache-lookup") {
+    const imageUrls = Array.isArray(message.imageUrls)
+      ? message.imageUrls.filter((imageUrl) => typeof imageUrl === "string")
+      : [];
+    cachedResultsFor(imageUrls)
+      .then(({ hashes, results }) => sendResponse({ ok: true, hashes, results }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.kind !== "aid:analyze") return false;
   analyze(message)
     .then((result) => sendResponse({ ok: true, result }))

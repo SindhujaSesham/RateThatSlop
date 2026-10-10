@@ -1,8 +1,9 @@
-const MAX_IMAGES = 20;
+const MAX_IMAGES = 100;
 const ETSY_HOST_RE = /(^|\.)etsy\.com$/i;
 const IGNORED_IMAGE_RE = /(avatar|icon|logo|sprite|badge|favicon|profile|shop[_-]?owner)/i;
 const analyzedResults = new Map();
 const inFlightImages = new Set();
+let pageScanPromise = null;
 
 function isEtsyPage(location = window.location) {
   return ETSY_HOST_RE.test(location.hostname);
@@ -84,29 +85,63 @@ function setImageBadges(imageUrl, result) {
 }
 
 async function analyzePageImages(data) {
-  for (const image of data.listing.images) {
-    if (analyzedResults.has(image.url)) {
-      setImageBadges(image.url, analyzedResults.get(image.url));
-      continue;
-    }
-    if (inFlightImages.has(image.url)) continue;
-    inFlightImages.add(image.url);
+  if (pageScanPromise) return pageScanPromise;
+  pageScanPromise = (async () => {
+    const imagesToAnalyze = [];
+    const localCached = new Set();
+    let cacheResponse;
     try {
-      const response = await chrome.runtime.sendMessage({
-        kind: "aid:analyze",
-        imageUrl: image.url,
-        meta: data.listing,
+      cacheResponse = await chrome.runtime.sendMessage({
+        kind: "aid:cache-lookup",
+        imageUrls: data.listing.images.map((image) => image.url),
       });
-      if (response?.ok) {
-        analyzedResults.set(image.url, response.result);
-        setImageBadges(image.url, response.result);
-      }
     } catch (error) {
-      console.warn("RateThatSlop could not analyze Etsy image:", error);
-    } finally {
-      inFlightImages.delete(image.url);
+      console.warn("RateThatSlop could not read cached image results:", error);
     }
-  }
+    if (cacheResponse?.ok && cacheResponse.results) {
+      for (const image of data.listing.images) {
+        const cached = cacheResponse.results[image.url];
+        if (!cached) continue;
+        analyzedResults.set(image.url, cached.result);
+        localCached.add(image.url);
+        setImageBadges(image.url, cached.result);
+      }
+    }
+
+    for (const image of data.listing.images) {
+      if (localCached.has(image.url)) continue;
+      if (analyzedResults.has(image.url)) {
+        setImageBadges(image.url, analyzedResults.get(image.url));
+        continue;
+      }
+      imagesToAnalyze.push(image);
+    }
+
+    for (const image of imagesToAnalyze) {
+      if (inFlightImages.has(image.url)) continue;
+      inFlightImages.add(image.url);
+      try {
+        const imageHash = cacheResponse?.hashes?.[image.url];
+        const response = await chrome.runtime.sendMessage({
+          kind: "aid:analyze",
+          imageUrl: image.url,
+          imageHash,
+          meta: data.listing,
+        });
+        if (response?.ok) {
+          analyzedResults.set(image.url, response.result);
+          setImageBadges(image.url, response.result);
+        }
+      } catch (error) {
+        console.warn("RateThatSlop could not analyze Etsy image:", error);
+      } finally {
+        inFlightImages.delete(image.url);
+      }
+    }
+  })().finally(() => {
+    pageScanPromise = null;
+  });
+  return pageScanPromise;
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
