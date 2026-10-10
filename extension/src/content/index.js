@@ -72,6 +72,74 @@ function collectPageData(doc = document, location = window.location) {
   };
 }
 
+function isIndividualListingPage() {
+  const path = window.location.pathname || "";
+  return /\/listing\/\d+/i.test(path);
+}
+
+function getListingDescription() {
+  const metaDesc =
+    document.querySelector('meta[name="description"]')?.content ||
+    document.querySelector('meta[property="og:description"]')?.content;
+
+  if (metaDesc) return metaDesc.trim();
+
+  const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+  for (const script of scripts) {
+    try {
+      const json = JSON.parse(script.textContent);
+      if (json?.description) return String(json.description).trim();
+      if (json?.itemListElement) {
+        for (const item of json.itemListElement) {
+          if (item?.description) return String(item.description).trim();
+        }
+      }
+    } catch {}
+  }
+
+  const visible = [...document.querySelectorAll('p, div, section')]
+    .map(el => el.textContent?.trim())
+    .find(text => text && text.length > 80);
+
+  return visible || null;
+}
+
+function getItemDetails() {
+  const selectors = [
+    '[data-item-details]',
+    '.item-details',
+    '.listing-details',
+    '.description-details',
+    '[data-description]',
+    '[data-section-id="details"]',
+    '[data-section-id="description"]',
+    '.details-section',
+    '.details',
+    '.about-this-item',
+    '[id*="description"]',
+    '[id*="details"]'
+  ];
+
+  for (const selector of selectors) {
+    const el = document.querySelector(selector);
+    if (!el) continue;
+
+    const text = (el.textContent || "").trim();
+    if (text && text.length > 20) return text;
+  }
+
+  const heading = [...document.querySelectorAll("h2, h3, h4, h5")]
+    .find((el) => /item details|details|about this item|description/i.test(el.textContent || ""));
+
+  if (heading) {
+    const container = heading.parentElement;
+    const text = (container?.textContent || "").trim();
+    if (text && text.length > 20) return text;
+  }
+
+  return null;
+}
+
 function setImageBadge(img, result) {
   const host = img.parentElement;
   if (!host) return;
@@ -138,6 +206,10 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
+  if(isIndividualListingPage()) {
+   const description = getItemDetails(); 
+   console.log(description);
+  }
   const scan = () => {
     const data = collectPageData();
     if (data.ok && data.listing.images.length) analyzePageImages(data);
