@@ -3,36 +3,117 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>RateThatSlop</title>
+    <title>Rate That Slop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
-    <main>
-      <h1>RateThatSlop</h1>
-      <p class="intro">Analyze Etsy listing images locally in your browser.</p>
-      <button id="scan-page" type="button">Scan current Etsy page</button>
-      <form id="analyze-form">
-        <label for="image-url">Direct image URL</label>
-        <input id="image-url" name="image-url" type="url"
-          placeholder="https://i.etsystatic.com/.../image.jpg" required>
-        <button type="submit">Analyze image</button>
-      </form>
-      <p id="status" role="status" aria-live="polite"></p>
-      <section id="page-results" hidden>
-        <h2>Current page</h2>
-        <p id="page-summary"></p>
-        <div id="image-results"></div>
-      </section>
-      <section id="result" aria-live="polite" hidden>
-        <h2 id="result-label"></h2>
-        <p id="result-score"></p>
-        <dl>
-          <div><dt>Threshold</dt><dd id="result-threshold"></dd></div>
-          <div><dt>Model</dt><dd id="result-model"></dd></div>
-          <div><dt>Processing time</dt><dd id="result-time"></dd></div>
-        </dl>
-      </section>
-    </main>
+    <div class="app-shell">
+      <div class="app-card">
+        <aside class="sidebar" aria-label="Rate That Slop brand">
+          <div class="sidebar-blob" aria-hidden="true"></div>
+          <div class="sidebar-blob-ring" aria-hidden="true"></div>
+          <img class="sidebar-sparkle" src="assets/sparkle.svg" alt="" width="36" height="36">
+
+          <div class="brand-row">
+            <div class="brand-mark">
+              <img src="assets/fox-mark.svg" alt="" width="44" height="44">
+            </div>
+            <p class="brand-name">Rate That Slop</p>
+          </div>
+
+          <div class="sidebar-copy">
+            <div class="pill pill-yellow">
+              <img src="assets/sparkle-badge.svg" alt="" width="14" height="14">
+              <span>Your clever listing companion</span>
+            </div>
+            <h1 class="hero-title">
+              <span>Spot AI.</span>
+              <span>Shop wiser.</span>
+            </h1>
+            <p class="hero-text">A friendly second look at the images behind every listing.</p>
+          </div>
+
+          <div class="privacy-callout">
+            <span class="privacy-shield" aria-hidden="true">
+              <img src="assets/shield-privacy.svg" alt="" width="179.9" height="179.9">
+            </span>
+            <p>Private by design. Images never leave your browser.</p>
+          </div>
+
+          <div class="sidebar-tile" aria-hidden="true"></div>
+        </aside>
+
+        <main class="panel">
+          <header class="panel-header">
+            <div class="pill pill-orange">
+              <span>AI listing detector</span>
+            </div>
+            <h2 class="panel-title">Let's sniff out the details</h2>
+            <p class="panel-lead">Check the images on your current listing, or paste a direct image link below.</p>
+          </header>
+
+          <button id="scan-page" class="scan-button" type="button">
+            <span class="scan-button-left">
+              <span class="scan-icon-wrap" aria-hidden="true">
+                <img src="assets/scan-icon.svg" alt="" width="20" height="20">
+              </span>
+              <span class="scan-button-copy">
+                <span class="scan-button-title">Scan current listing</span>
+                <span class="scan-button-sub">Analyze all visible product images</span>
+              </span>
+            </span>
+            <span class="scan-button-arrow" aria-hidden="true">→</span>
+          </button>
+
+          <div class="divider" role="separator">
+            <span></span>
+            <p>Or use an image link</p>
+            <span></span>
+          </div>
+
+          <form id="analyze-form" class="analyze-form">
+            <label for="image-url">Direct image URL</label>
+            <div class="url-row">
+              <input id="image-url" name="image-url" type="url"
+                placeholder="https://i.etsystatic.com/.../image.jpg" required>
+              <button type="submit" class="analyze-button">Analyze image</button>
+            </div>
+          </form>
+
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+
+          <section id="result" class="result-card" aria-live="polite" hidden>
+            <div class="result-score-badge">
+              <span id="result-score-value">—</span>
+            </div>
+            <div class="result-copy">
+              <p class="result-kicker">AI likelihood</p>
+              <h3 id="result-label"></h3>
+              <p id="result-summary"></p>
+              <dl class="result-meta">
+                <div><dt>Threshold</dt><dd id="result-threshold"></dd></div>
+                <div><dt>Model</dt><dd id="result-model"></dd></div>
+                <div><dt>Processing time</dt><dd id="result-time"></dd></div>
+              </dl>
+            </div>
+          </section>
+
+          <section id="page-results" class="page-results" hidden>
+            <h3>Current page</h3>
+            <p id="page-summary"></p>
+            <div id="image-results"></div>
+          </section>
+
+          <p class="footer-note">
+            <img src="assets/shield-footer.svg" alt="" width="20" height="20">
+            <span>Local analysis · No uploads · No tracking</span>
+          </p>
+        </main>
+      </div>
+    </div>
     <script type="module" src="index.js"></script>
   </body>
 </html>

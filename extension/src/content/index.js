@@ -74,12 +74,36 @@ function setImageBadge(img, result) {
   host.appendChild(badge);
 }
 
+async function loadImageDataUrl(imageUrl) {
+  if (!imageUrl) return "";
+  const image = new Image();
+  image.decoding = "async";
+  image.crossOrigin = "anonymous";
+  image.referrerPolicy = "no-referrer";
+
+  await new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = reject;
+    image.src = imageUrl;
+  });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth || image.width || 1;
+  canvas.height = image.naturalHeight || image.height || 1;
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
 async function analyzePageImages(data) {
   for (const image of data.listing.images) {
     try {
+      const imageData = await loadImageDataUrl(image.url).catch(() => "");
       const response = await chrome.runtime.sendMessage({
         kind: "aid:analyze",
         imageUrl: image.url,
+        imageData: imageData || undefined,
         meta: data.listing,
       });
       if (response?.ok) {
