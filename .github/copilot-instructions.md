@@ -271,6 +271,28 @@ by default.
 - `extension/src/popup/auth-ui.js` owns login and account controls when that
   UI is implemented; it must expose signed-out and server-unavailable states
   accessibly.
+- `extension/src/background/settings.js` owns feature-toggle definitions,
+  default values, and persistence. Store toggle values in
+  `chrome.storage.local`; an absent value means enabled for backward
+  compatibility. The popup owns only presentation and sends `aid:get-settings`
+  and `aid:set-settings` messages to the background service worker.
+- The popup must expose separate, accessible toggles for scraping,
+  server-score uploads, shared server information, AI description testing,
+  extension user reviews, and Etsy reviews. All six default to enabled.
+- Enforce toggles at the operation boundary, not only by hiding UI controls:
+  `scrapingEnabled` gates automatic and manual Etsy scraping,
+  `serverUploadEnabled` gates score and user-review writes,
+  `serverInfoEnabled` gates shared listing/server reads,
+  `descriptionAiEnabled` gates description evaluation,
+  `userReviewsEnabled` gates user-review reads and writes, and
+  `etsyReviewsEnabled` excludes Etsy review text, ratings, and customer-review
+  photos from scraping. Keep local image inference independent of these
+  settings.
+- Settings must not bypass authentication. Enabling a server-related toggle
+  must still require a valid signed-in session, and disabling a toggle must
+  prevent the corresponding request rather than sending it and ignoring the
+  response. Return explicit errors or skipped statuses for disabled
+  operations.
 - Backend server routes are mounted in `backend/server.js`: authenticated
   score reads and writes are under `/api/scores`, description evaluation is
   under `/api/descriptions/evaluate`, and reports remain under

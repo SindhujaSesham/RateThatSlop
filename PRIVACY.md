@@ -19,6 +19,12 @@ compact identity fields, SHA-256 image-byte hashes, timestamps, and an
 optional structured AI rating. Raw description and review text is not stored by
 this workflow. No post data is sent to a server by the current implementation.
 
+The popup provides separate opt-in switches for scraping, uploading scores,
+reading shared server information, AI description evaluation, user reviews,
+and Etsy reviews. They default to enabled for compatibility, but disabled
+features do not run. Server reads, writes, reviews, and description evaluation
+remain authenticated and unavailable to signed-out users.
+
 Completed local inference results are cached in Chrome extension storage as
 compact result metadata keyed by a SHA-256 hash of the fetched image bytes.
 The cache does not store downloaded image bytes or full pasted-image data

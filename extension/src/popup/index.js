@@ -17,6 +17,34 @@ const scrapedData = document.querySelector("#scraped-data");
 const scrapedDataSummary = document.querySelector("#scraped-data-summary");
 const scrapedDataOutput = document.querySelector("#scraped-data-output");
 const showScrapedDataButton = document.querySelector("#show-scraped-data");
+const settingInputs = [...document.querySelectorAll("[data-setting]")];
+
+async function loadSettings() {
+  const response = await chrome.runtime.sendMessage({ kind: "aid:get-settings" });
+  if (!response?.ok) throw new Error(response?.error || "Could not load settings");
+  for (const input of settingInputs) {
+    input.checked = response.settings[input.dataset.setting] !== false;
+  }
+
+  async function requireScrapingEnabled() {
+    const response = await chrome.runtime.sendMessage({ kind: "aid:get-settings" });
+    if (!response?.ok) throw new Error(response?.error || "Could not read feature settings");
+    if (response.settings.scrapingEnabled === false) {
+      throw new Error("Scraping is disabled in Feature settings.");
+    }
+  }
+}
+
+async function saveSetting(input) {
+  const response = await chrome.runtime.sendMessage({
+    kind: "aid:set-settings",
+    settings: { [input.dataset.setting]: input.checked },
+  });
+  if (!response?.ok) {
+    input.checked = !input.checked;
+    throw new Error(response?.error || "Could not save setting");
+  }
+}
 
 function resetToOpenState() {
   result.hidden = true;
@@ -42,6 +70,17 @@ function showResult(value) {
 }
 
 resetToOpenState();
+loadSettings().catch((error) => {
+  status.textContent = `Settings unavailable: ${error.message}`;
+});
+
+for (const input of settingInputs) {
+  input.addEventListener("change", () => {
+    saveSetting(input).catch((error) => {
+      status.textContent = error.message;
+    });
+  });
+}
 
 function createImageResult(image, response) {
   const card = document.createElement("article");
@@ -127,6 +166,7 @@ async function scanCurrentPage() {
   pageSummary.textContent = "Finding listing images...";
   scanButton.disabled = true;
   try {
+    await requireScrapingEnabled();
     const listing = await getCurrentEtsyPage();
     pageSummary.textContent = listing.title
       ? `${listing.title} · ${listing.images.length} image${listing.images.length === 1 ? "" : "s"}`
@@ -167,7 +207,7 @@ async function scanCurrentPage() {
 }
 
 scanButton.addEventListener("click", scanCurrentPage);
-showScrapedDataButton.addEventListener("click", showScrapedPostData);
+if (showScrapedDataButton) showScrapedDataButton.addEventListener("click", showScrapedPostData);
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();

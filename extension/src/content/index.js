@@ -161,7 +161,10 @@ function scrapeProductInformation(doc = document) {
   };
 }
 
-function scrapeReviewsAndImages(doc = document) {
+function scrapeReviewsAndImages(doc = document, includeEtsyReviews = true) {
+  if (!includeEtsyReviews) {
+    return { ratings: "", reviews: [], images: getListingImages(doc), reviewImages: [] };
+  }
   const reviews = [];
   const reviewElements = doc.querySelectorAll(
     '[data-review-id], [data-review-text], [data-testid="review"]',
@@ -184,13 +187,13 @@ function scrapeReviewsAndImages(doc = document) {
   };
 }
 
-function scrapePostPage(doc = document, location = window.location) {
+function scrapePostPage(doc = document, location = window.location, options = {}) {
   if (!isListingPage(location)) return { ok: false, error: "This is not an Etsy listing page." };
   return {
     ok: true,
     identity: scrapePostIdentity(doc, location),
     productInformation: scrapeProductInformation(doc),
-    reviewsAndImages: scrapeReviewsAndImages(doc),
+    reviewsAndImages: scrapeReviewsAndImages(doc, options.includeEtsyReviews !== false),
   };
 }
 
@@ -290,8 +293,12 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       return false;
     }
     if (message?.kind === "aid:scrape-post") {
-      sendResponse(scrapePostPage());
-      return false;
+      chrome.runtime.sendMessage({ kind: "aid:get-settings" }).then((settingsResponse) => {
+        sendResponse(scrapePostPage(document, window.location, {
+          includeEtsyReviews: settingsResponse?.settings?.etsyReviewsEnabled !== false,
+        }));
+      }).catch(() => sendResponse(scrapePostPage()));
+      return true;
     }
     return false;
   });
@@ -299,7 +306,9 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   const scan = () => {
-    const data = collectPageData();
+    chrome.runtime.sendMessage({ kind: "aid:get-settings" }).then((settingsResponse) => {
+      if (settingsResponse?.settings?.scrapingEnabled === false) return;
+      const data = collectPageData();
     if (data.ok && data.listing.analyzableImages.length) {
       analyzePageImages({
         ...data,
@@ -310,9 +319,15 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
       });
     }
     if (isListingPage() && getListingId(document, window.location)) {
-      chrome.runtime.sendMessage({ kind: "aid:scrape-post", post: scrapePostPage() })
+      chrome.runtime.sendMessage({
+        kind: "aid:scrape-post",
+        post: scrapePostPage(document, window.location, {
+          includeEtsyReviews: settingsResponse?.settings?.etsyReviewsEnabled !== false,
+        }),
+      })
         .catch(() => {});
-    }
+      }
+    }).catch(() => {});
   };
   let scanTimer = 0;
   const scheduleScan = () => {

@@ -72,6 +72,12 @@ export function createApiClient({
         body: JSON.stringify({ description }),
       });
     },
+    getUserReviews(platform, listingId) {
+      return request(`/api/reports/${encodeURIComponent(platform)}/${encodeURIComponent(listingId)}`);
+    },
+    submitUserReview(payload) {
+      return request("/api/reports", { method: "POST", body: JSON.stringify(payload) });
+    },
   };
 }
 

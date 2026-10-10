@@ -41,6 +41,12 @@ Etsy DOM exposes them. The cap prevents an unexpectedly large page from
 triggering unbounded local inference. Etsy can change its markup, so missing
 metadata is expected and does not prevent image analysis.
 
+The popup's **Feature settings** switches are enabled by default for scraping,
+server score uploads, shared server information, AI description testing, user
+reviews, and Etsy reviews. Turning a switch off prevents that operation; local
+image inference remains available. Server operations also require a signed-in
+RateThatSlop account regardless of the switch state.
+
 When a listing page is opened, three bounded scrapers collect listing identity,
 product instructions/details, and review/rating/image inputs. Scraping can be
 disabled with the `scrapingEnabled` extension-storage setting. A listing is

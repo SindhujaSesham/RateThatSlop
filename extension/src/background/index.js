@@ -2,6 +2,7 @@
 // the offscreen document, where ONNX Runtime can decode and process images.
 import { apiClient } from "./api-client.js";
 import { getAccessToken } from "./auth.js";
+import { getSettings, isSettingEnabled, setSettings } from "./settings.js";
 import {
   cacheListing,
   getCachedListing,
@@ -16,7 +17,6 @@ const CACHE_MAX = 3000;
 const MAX_IMAGES = 100;
 const CACHE_STORAGE_PREFIX = "inference:";
 const POST_STORAGE_PREFIX = "post:";
-const SCRAPING_ENABLED_KEY = "scrapingEnabled";
 const cache = new Map();
 const inflight = new Map();
 const serverListingInflight = new Map();
@@ -184,6 +184,7 @@ async function analyze(message) {
 }
 
 async function serverListing(message) {
+  if (!isSettingEnabled(await getSettings(), "serverInfoEnabled")) return null;
   const listingId = typeof message?.meta?.listingId === "string"
     ? message.meta.listingId : "";
   if (!listingId || !(await getAccessToken())) return null;
@@ -238,17 +239,25 @@ async function scrapePost(message) {
   const listingId = typeof identity?.listingId === "string" ? identity.listingId : "";
   if (!listingId) throw new Error("listing identity is required");
 
-  const settings = await chrome.storage.local.get(SCRAPING_ENABLED_KEY);
-  if (settings[SCRAPING_ENABLED_KEY] === false) return { ok: true, skipped: "disabled" };
+  const settings = await getSettings();
+  if (!settings.scrapingEnabled) return { ok: true, skipped: "disabled" };
 
   const storageKey = `${POST_STORAGE_PREFIX}${listingId}`;
   const existing = await chrome.storage.local.get(storageKey);
   if (existing[storageKey]) return { ok: true, skipped: "already-scraped" };
 
-  const listingImages = Array.isArray(post.reviewsAndImages?.images)
-    ? post.reviewsAndImages.images : [];
-  const reviewImages = Array.isArray(post.reviewsAndImages?.reviewImages)
-    ? post.reviewsAndImages.reviewImages : [];
+  const reviewsAndImages = settings.etsyReviewsEnabled
+    ? post.reviewsAndImages
+    : {
+      ...post.reviewsAndImages,
+      ratings: "",
+      reviews: [],
+      reviewImages: [],
+    };
+  const listingImages = Array.isArray(reviewsAndImages?.images)
+      ? reviewsAndImages.images : [];
+  const reviewImages = Array.isArray(reviewsAndImages?.reviewImages)
+    ? reviewsAndImages.reviewImages : [];
   const images = [...listingImages, ...reviewImages]
       .map((image) => image?.url)
       .filter((url) => typeof url === "string" && /^https?:\/\//i.test(url))
@@ -288,13 +297,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.kind === "aid:submit-score") {
-    apiClient.submitListingScore(message.payload)
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "serverUploadEnabled")) {
+        throw new Error("server uploads are disabled in settings");
+      }
+      return apiClient.submitListingScore(message.payload);
+    })
       .then((score) => sendResponse({ ok: true, score }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
   if (message?.kind === "aid:evaluate-description") {
-    apiClient.evaluateDescription(message.description)
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "descriptionAiEnabled")) {
+        throw new Error("AI description testing is disabled in settings");
+      }
+      return apiClient.evaluateDescription(message.description);
+    })
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -302,6 +321,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.kind === "aid:scrape-post") {
     scrapePost(message)
       .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:get-user-reviews") {
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "userReviewsEnabled")) {
+        throw new Error("user reviews are disabled in settings");
+      }
+      return apiClient.getUserReviews(message.platform || "etsy", message.listingId);
+    })
+      .then((reviews) => sendResponse({ ok: true, reviews }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:submit-user-review") {
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "userReviewsEnabled") ||
+          !isSettingEnabled(settings, "serverUploadEnabled")) {
+        throw new Error("user review uploads are disabled in settings");
+      }
+      return apiClient.submitUserReview(message.payload);
+    })
+      .then((review) => sendResponse({ ok: true, review }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:get-settings") {
+    getSettings().then((settings) => sendResponse({ ok: true, settings }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:set-settings") {
+    setSettings(message.settings).then((settings) => sendResponse({ ok: true, settings }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }

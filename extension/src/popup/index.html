@@ -85,6 +85,19 @@
 
           <p id="status" class="status" role="status" aria-live="polite"></p>
 
+          <section class="settings-panel" aria-labelledby="settings-title">
+            <h3 id="settings-title">Feature settings</h3>
+            <p class="settings-help">All features start on. Server features still require sign-in.</p>
+            <div class="settings-list">
+              <label class="setting-row"><span>Scrape Etsy listings</span><input type="checkbox" data-setting="scrapingEnabled"></label>
+              <label class="setting-row"><span>Upload scores to server</span><input type="checkbox" data-setting="serverUploadEnabled"></label>
+              <label class="setting-row"><span>Use shared server information</span><input type="checkbox" data-setting="serverInfoEnabled"></label>
+              <label class="setting-row"><span>AI-test descriptions</span><input type="checkbox" data-setting="descriptionAiEnabled"></label>
+              <label class="setting-row"><span>Use user reviews</span><input type="checkbox" data-setting="userReviewsEnabled"></label>
+              <label class="setting-row"><span>Use Etsy reviews</span><input type="checkbox" data-setting="etsyReviewsEnabled"></label>
+            </div>
+          </section>
+
           <section id="result" class="result-card" aria-live="polite" hidden>
             <div class="result-score-badge">
               <span id="result-score-value">—</span>
