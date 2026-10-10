@@ -6,7 +6,7 @@
   "description": "Build tooling for the Etsy Pattern Detector Chrome extension",
   "scripts": {
     "build": "node build.js",
-    "test": "node --test test/forensics.test.mjs"
+    "test": "node --test"
   },
   "x-change-note": "Update dependencies and scripts here if the Etsy detector build or tests need additional tooling.",
   "devDependencies": {
