@@ -68,6 +68,28 @@ button:disabled {
   margin-top: 14px;
 }
 
+#scraped-data {
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid #fbbc04;
+  border-radius: 6px;
+  background: #fff8e1;
+}
+
+#scraped-data-summary {
+  color: #5f6368;
+  font-size: 12px;
+}
+
+#scraped-data-output {
+  max-height: 260px;
+  margin: 8px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 11px ui-monospace, monospace;
+}
+
 #page-summary {
   margin: 0 0 8px;
   color: #5f6368;

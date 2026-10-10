@@ -11,6 +11,7 @@
       <h1>RateThatSlop</h1>
       <p class="intro">Analyze Etsy listing images locally in your browser.</p>
       <button id="scan-page" type="button">Scan current Etsy page</button>
+      <button id="show-scraped-data" type="button">Show scraped data (temporary)</button>
       <form id="analyze-form">
         <label for="image-url">Direct image URL</label>
         <input id="image-url" name="image-url" type="url"
@@ -22,6 +23,11 @@
         <h2>Current page</h2>
         <p id="page-summary"></p>
         <div id="image-results"></div>
+      </section>
+      <section id="scraped-data" hidden>
+        <h2>Temporary scraped data</h2>
+        <p id="scraped-data-summary"></p>
+        <pre id="scraped-data-output" aria-label="Temporary scraped data"></pre>
       </section>
       <section id="result" aria-live="polite" hidden>
         <h2 id="result-label"></h2>

@@ -15,8 +15,14 @@ const context = {
   console,
 };
 vm.runInNewContext(`${source}
-globalThis.__testApi = { collectPageData, getListingImages, isEtsyPage };`, context);
-const { collectPageData, getListingImages, isEtsyPage } = context.__testApi;
+globalThis.__testApi = {
+  collectPageData, getListingImages, isEtsyPage, isListingPage, scrapePostPage,
+  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages,
+};`, context);
+const {
+  collectPageData, getListingImages, isEtsyPage, isListingPage, scrapePostPage,
+  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages,
+} = context.__testApi;
 
 function makeImage({ url, width = 500, height = 500, alt = "" }) {
   return {
@@ -34,6 +40,10 @@ function makeImage({ url, width = 500, height = 500, alt = "" }) {
 test("recognizes Etsy listing pages but rejects lookalike hosts", () => {
   assert.equal(isEtsyPage({ hostname: "www.etsy.com" }), true);
   assert.equal(isEtsyPage({ hostname: "etsy.com.evil.example" }), false);
+  assert.equal(isListingPage({ hostname: "www.etsy.com", pathname: "/listing/123" }), true);
+  assert.equal(isListingPage({ hostname: "www.etsy.com", pathname: "/listing/123/reviews" }), true);
+  assert.equal(isListingPage({ hostname: "www.etsy.com", pathname: "/search?q=pattern" }), false);
+  assert.equal(isListingPage({ hostname: "www.etsy.com", pathname: "/seller/listing/123" }), false);
 });
 
 test("deduplicates listing images and excludes small utility images", () => {
@@ -64,4 +74,38 @@ test("collects listing metadata and image alternatives", () => {
   assert.equal(listing.listing.title, "Sewing pattern");
   assert.equal(listing.listing.seller, "Pattern shop");
   assert.equal(listing.listing.images[0].alt, "Front view");
+});
+
+test("splits listing identity, product information, and review/image scraping", () => {
+  const title = { tagName: "H1", textContent: "Pattern" };
+  const seller = { textContent: "Maker" };
+  const description = { textContent: "Printable instructions" };
+  const review = {
+    textContent: "Lovely pattern",
+    getAttribute: (name) => name === "data-review-id" ? "r1" : null,
+  };
+  const image = makeImage({ url: "https://i.etsystatic.com/pattern.jpg" });
+  const selectors = new Map([
+    ["h1", title],
+    ["[data-shop-name]", seller],
+    ['[data-testid="listing-page-description"]', description],
+  ]);
+  const doc = {
+    querySelector: (selector) => selectors.get(selector) || null,
+    querySelectorAll: (selector) => {
+      if (selector === "img") return [image];
+      if (selector.includes("review")) return [review];
+      if (selector.includes("description")) return [description];
+      return [];
+    },
+  };
+  const location = { hostname: "etsy.com", href: "https://etsy.com/listing/123", pathname: "/listing/123" };
+  const scraped = scrapePostPage(doc, location);
+  assert.equal(scraped.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(scraped.identity)), {
+    listingId: "123", creator: "Maker", price: "", url: location.href, name: "Pattern",
+  });
+  assert.match(scraped.productInformation.description, /Printable instructions/);
+  assert.equal(scraped.reviewsAndImages.images[0].url, image.src);
+  assert.equal(scraped.reviewsAndImages.reviews[0].text, "Lovely pattern");
 });

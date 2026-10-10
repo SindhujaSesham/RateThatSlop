@@ -4,7 +4,10 @@
 const OFFSCREEN_URL = "src/background/offscreen.html";
 const MODEL_VERSION_FALLBACK = "unknown";
 const CACHE_MAX = 3000;
+const MAX_IMAGES = 100;
 const CACHE_STORAGE_PREFIX = "inference:";
+const POST_STORAGE_PREFIX = "post:";
+const SCRAPING_ENABLED_KEY = "scrapingEnabled";
 const cache = new Map();
 const inflight = new Map();
 let offscreenReady = null;
@@ -168,7 +171,69 @@ async function analyze(message) {
   return request;
 }
 
+function compactAiRating(value) {
+  if (!value || typeof value !== "object") return undefined;
+  const score = Number(value.score ?? value.rating);
+  if (!Number.isFinite(score) || score < 0 || score > 1) return undefined;
+  const rating = { score };
+  if (typeof value.label === "string") rating.label = value.label.slice(0, 80);
+  if (typeof value.modelVersion === "string") {
+    rating.modelVersion = value.modelVersion.slice(0, 80);
+  }
+  return rating;
+}
+
+async function scrapePost(message) {
+  const post = message?.post;
+  const identity = post?.identity;
+  const listingId = typeof identity?.listingId === "string" ? identity.listingId : "";
+  if (!listingId) throw new Error("listing identity is required");
+
+  const settings = await chrome.storage.local.get(SCRAPING_ENABLED_KEY);
+  if (settings[SCRAPING_ENABLED_KEY] === false) return { ok: true, skipped: "disabled" };
+
+  const storageKey = `${POST_STORAGE_PREFIX}${listingId}`;
+  const existing = await chrome.storage.local.get(storageKey);
+  if (existing[storageKey]) return { ok: true, skipped: "already-scraped" };
+
+  const images = Array.isArray(post.reviewsAndImages?.images)
+    ? post.reviewsAndImages.images
+      .map((image) => image?.url)
+      .filter((url) => typeof url === "string" && /^https?:\/\//i.test(url))
+    : [];
+  let imageIds = [];
+  if (images.length) {
+    await ensureOffscreen();
+    const hashResponse = await chrome.runtime.sendMessage({
+      kind: "aid:hash-images",
+      imageUrls: [...new Set(images)].slice(0, MAX_IMAGES),
+    });
+    if (!hashResponse?.ok) throw new Error(hashResponse?.error || "image hashing failed");
+    imageIds = Object.values(hashResponse.hashes || {})
+      .filter((imageId) => typeof imageId === "string" && imageId);
+  }
+
+  const record = {
+    listingId,
+    creator: typeof identity.creator === "string" ? identity.creator.slice(0, 500) : "",
+    price: typeof identity.price === "string" ? identity.price.slice(0, 120) : "",
+    url: typeof identity.url === "string" ? identity.url.slice(0, 2000) : "",
+    name: typeof identity.name === "string" ? identity.name.slice(0, 500) : "",
+    imageIds: [...new Set(imageIds)],
+    aiRating: compactAiRating(message.aiRating),
+    scrapedAt: new Date().toISOString(),
+  };
+  await chrome.storage.local.set({ [storageKey]: record });
+  return { ok: true, record };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.kind === "aid:scrape-post") {
+    scrapePost(message)
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.kind === "aid:cache-lookup") {
     const imageUrls = Array.isArray(message.imageUrls)
       ? message.imageUrls.filter((imageUrl) => typeof imageUrl === "string")

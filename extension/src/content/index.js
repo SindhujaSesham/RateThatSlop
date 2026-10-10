@@ -9,6 +9,11 @@ function isEtsyPage(location = window.location) {
   return ETSY_HOST_RE.test(location.hostname);
 }
 
+function isListingPage(location = window.location) {
+  return isEtsyPage(location) &&
+    /^\/listing\/\d+(?:\/|$)/i.test(String(location.pathname || ""));
+}
+
 function getImageUrl(img) {
   return img.currentSrc || img.src || img.getAttribute("data-src") || "";
 }
@@ -59,6 +64,97 @@ function collectPageData(doc = document, location = window.location) {
       price: getText(doc, ['[data-price]', ".currency-value", ".price"]),
       pageUrl: location.href,
     },
+  };
+}
+
+function getListingId(location = window.location) {
+  if (!isListingPage(location)) return "";
+  const match = String(location.pathname || "").match(/^\/listing\/(\d+)(?:\/|$)/i);
+  return match?.[1] || "";
+}
+
+function getAllText(doc, selectors, limit = 12000) {
+  const values = [];
+  const seen = new Set();
+  for (const selector of selectors) {
+    for (const element of doc.querySelectorAll(selector)) {
+      const value = element.textContent?.replace(/\s+/g, " ").trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      values.push(value);
+      if (values.join("\n").length >= limit) return values.join("\n").slice(0, limit);
+    }
+  }
+  return values.join("\n");
+}
+
+function scrapePostIdentity(doc = document, location = window.location) {
+  const page = collectPageData(doc, location);
+  if (!page.ok) return page;
+  return {
+    listingId: getListingId(location),
+    creator: page.listing.seller,
+    price: page.listing.price,
+    url: page.listing.pageUrl,
+    name: page.listing.title,
+  };
+}
+
+function scrapeProductInformation(doc = document) {
+  return {
+    description: getAllText(doc, [
+      '[data-testid="listing-page-description"]',
+      '[data-listing-description]',
+      '[data-testid="description"]',
+      ".wt-text-body-01",
+    ]),
+    instructions: getAllText(doc, [
+      '[data-testid*="instruction"]',
+      '[data-testid*="details"]',
+      '[class*="instruction"]',
+      '[class*="details"]',
+      "dl",
+      "ul",
+    ]),
+    attributes: getAllText(doc, [
+      '[data-testid="listing-attribute"]',
+      '[data-attribute]',
+      "table",
+    ]),
+  };
+}
+
+function scrapeReviewsAndImages(doc = document) {
+  const reviews = [];
+  const reviewElements = doc.querySelectorAll(
+    '[data-review-id], [data-testid*="review"], [class*="review"]',
+  );
+  for (const element of reviewElements) {
+    const text = element.textContent?.replace(/\s+/g, " ").trim();
+    if (!text || text.length < 2) continue;
+    const ratingText = element.getAttribute("data-rating") ||
+      element.querySelector?.('[aria-label*="star" i]')?.getAttribute("aria-label") || "";
+    reviews.push({ text: text.slice(0, 2000), rating: ratingText });
+    if (reviews.length >= 100) break;
+  }
+  return {
+    ratings: getAllText(doc, [
+      '[data-rating]',
+      '[aria-label*="rating" i]',
+      '[aria-label*="star" i]',
+    ], 2000),
+    reviews,
+    images: getListingImages(doc),
+  };
+}
+
+function scrapePostPage(doc = document, location = window.location) {
+  if (!isListingPage(location)) return { ok: false, error: "This is not an Etsy listing page." };
+  return {
+    ok: true,
+    identity: scrapePostIdentity(doc, location),
+    productInformation: scrapeProductInformation(doc),
+    reviewsAndImages: scrapeReviewsAndImages(doc),
   };
 }
 
@@ -157,6 +253,10 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       sendResponse({ ok: true });
       return false;
     }
+    if (message?.kind === "aid:scrape-post") {
+      sendResponse(scrapePostPage());
+      return false;
+    }
     return false;
   });
 }
@@ -165,6 +265,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   const scan = () => {
     const data = collectPageData();
     if (data.ok && data.listing.images.length) analyzePageImages(data);
+    if (data.ok && getListingId()) {
+      chrome.runtime.sendMessage({ kind: "aid:scrape-post", post: scrapePostPage() })
+        .catch(() => {});
+    }
   };
   let scanTimer = 0;
   const scheduleScan = () => {

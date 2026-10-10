@@ -12,6 +12,10 @@ const scanButton = document.querySelector("#scan-page");
 const pageResults = document.querySelector("#page-results");
 const pageSummary = document.querySelector("#page-summary");
 const imageResults = document.querySelector("#image-results");
+const scrapedData = document.querySelector("#scraped-data");
+const scrapedDataSummary = document.querySelector("#scraped-data-summary");
+const scrapedDataOutput = document.querySelector("#scraped-data-output");
+const showScrapedDataButton = document.querySelector("#show-scraped-data");
 
 function showResult(value) {
   result.hidden = false;
@@ -42,6 +46,31 @@ async function getCurrentEtsyPage() {
   const page = await chrome.tabs.sendMessage(tab.id, { kind: "aid:collect-page" });
   if (!page?.ok) throw new Error(page?.error || "Could not read this page.");
   return page.listing;
+}
+
+async function showScrapedPostData() {
+  scrapedData.hidden = false;
+  scrapedDataSummary.textContent = "Reading the current tab...";
+  scrapedDataOutput.textContent = "";
+  showScrapedDataButton.disabled = true;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("Could not find the active tab.");
+    if (!/^https?:\/\/([^.]+\.)?etsy\.com\/listing\/\d+(?:\/|$)/i.test(tab.url || "")) {
+      throw new Error("Open an Etsy listing page (/listing/<id>) to preview scraped data.");
+    }
+    const response = await chrome.tabs.sendMessage(tab.id, { kind: "aid:scrape-post" });
+    if (!response?.ok) throw new Error(response?.error || "This page is not an Etsy listing.");
+    scrapedDataSummary.textContent =
+      "Temporary preview only. Raw description and review text are not persisted.";
+    scrapedDataOutput.textContent = JSON.stringify(response, null, 2);
+    status.textContent = "Scraped data preview ready.";
+  } catch (error) {
+    scrapedDataSummary.textContent = error.message;
+    status.textContent = "Could not preview scraped data.";
+  } finally {
+    showScrapedDataButton.disabled = false;
+  }
 }
 
 async function showResultOnPage(imageUrl, result) {
@@ -89,6 +118,7 @@ async function scanCurrentPage() {
 }
 
 scanButton.addEventListener("click", scanCurrentPage);
+showScrapedDataButton.addEventListener("click", showScrapedPostData);
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -110,4 +140,4 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-export { createImageResult, getCurrentEtsyPage, scanCurrentPage };
+export { createImageResult, getCurrentEtsyPage, scanCurrentPage, showScrapedPostData };
