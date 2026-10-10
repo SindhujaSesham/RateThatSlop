@@ -1,7 +1,7 @@
 // Local ONNX inference. Images are fetched and processed inside the extension;
 // no image bytes are sent to a remote service.
 
-const MODEL_URL = chrome.runtime.getURL("src/background/model.onnx");
+const MODEL_URL = chrome.runtime.getURL("src/background/w5810_best_fp16.onnx");
 const MANIFEST_URL = chrome.runtime.getURL("model_manifest.json");
 let sessionPromise = null;
 let manifestPromise = null;
@@ -57,8 +57,14 @@ async function decodeImage(blob) {
 }
 
 function sigmoid(logit, calibration = {}) {
+  if (calibration.type && calibration.type !== "sigmoid") {
+    throw new Error(`unsupported calibration type: ${calibration.type}`);
+  }
   const temperature = Number(calibration.temperature || 1);
   const bias = Number(calibration.bias || 0);
+  if (!Number.isFinite(temperature) || temperature <= 0 || !Number.isFinite(bias)) {
+    throw new Error("invalid sigmoid calibration parameters");
+  }
   const value = logit / temperature + bias;
   return 1 / (1 + Math.exp(-value));
 }
@@ -66,6 +72,9 @@ function sigmoid(logit, calibration = {}) {
 async function imageToTensor(bitmap, manifest) {
   const size = Number(manifest.input_size);
   const shorterSide = Number(manifest.resize_shorter_side || size);
+  if (!Number.isInteger(size) || size <= 0 || !Number.isFinite(shorterSide) || shorterSide < size) {
+    throw new Error("invalid model input size in manifest");
+  }
   const scale = shorterSide / Math.min(bitmap.width, bitmap.height);
   const width = Math.max(size, Math.round(bitmap.width * scale));
   const height = Math.max(size, Math.round(bitmap.height * scale));
@@ -77,6 +86,15 @@ async function imageToTensor(bitmap, manifest) {
   const pixels = context.getImageData(left, top, size, size).data;
   const mean = manifest.norm_mean;
   const standardDeviation = manifest.norm_std;
+  if (
+    !Array.isArray(mean) ||
+    mean.length !== 3 ||
+    !Array.isArray(standardDeviation) ||
+    standardDeviation.length !== 3 ||
+    standardDeviation.some((value) => !Number.isFinite(Number(value)) || Number(value) <= 0)
+  ) {
+    throw new Error("invalid normalization values in manifest");
+  }
   const plane = size * size;
   const values = new Float32Array(plane * 3);
 
@@ -102,7 +120,11 @@ async function infer(imageUrl, imageData) {
     const output = await session.run({
       [session.inputNames[0]]: tensor,
     });
-    const rawOutput = Number(output[session.outputNames[0]].data[0]);
+    const outputTensor = output[session.outputNames[0]];
+    const rawOutput = Number(outputTensor?.data?.[0]);
+    if (!Number.isFinite(rawOutput)) {
+      throw new Error("model returned an invalid output");
+    }
     const score = sigmoid(rawOutput, manifest.calibration);
     return {
       ok: true,
