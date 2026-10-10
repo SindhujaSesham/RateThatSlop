@@ -4,7 +4,6 @@ const supabase = require("../config/supabase");
 
 const router = express.Router();
 
-// Get a pattern by its platform and listing ID
 router.get("/:platform/:listingId", async (req, res) => {
     const { platform, listingId } = req.params;
 
