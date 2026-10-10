@@ -45,6 +45,16 @@ function getText(doc, selectors) {
   return "";
 }
 
+function getListingId (doc) {
+    const listingId =
+    document.querySelector("[data-listing-id]")?.getAttribute("data-listing-id") ||
+    document.querySelector("[data-product-id]")?.getAttribute("data-product-id") ||
+    document.querySelector("meta[property='og:url']")?.content ||
+    location.pathname;
+
+    return listingId;
+}
+ 
 function collectPageData(doc = document, location = window.location) {
   if (!isEtsyPage(location)) return { ok: false, error: "This is not an Etsy page." };
   return {
@@ -54,6 +64,7 @@ function collectPageData(doc = document, location = window.location) {
       title: getText(doc, ["h1", "[data-listing-title]", "[data-title]", 'meta[property="og:title"]']),
       seller: getText(doc, ["[data-shop-name]", "[data-seller-name]", ".shop-name", ".shop-name-text"]),
       price: getText(doc, ['[data-price]', ".currency-value", ".price"]),
+      listingId: getListingId(doc),
       pageUrl: location.href,
     },
   };
@@ -65,7 +76,7 @@ function setImageBadge(img, result) {
   if (getComputedStyle(host).position === "static") host.style.position = "relative";
   const badge = document.createElement("span");
   badge.className = "ratethatslop-image-badge";
-  badge.textContent = result?.label === "likely-ai" ? "AI signal" : "Low AI signal";
+  badge.textContent = result?.label === "likely-ai" ? "Likely AI" : "Likely Real";
   badge.style.cssText = [
     "position:absolute", "top:8px", "left:8px", "z-index:2", "padding:4px 7px",
     "border-radius:999px", "font:600 11px system-ui,sans-serif", "color:#fff",
