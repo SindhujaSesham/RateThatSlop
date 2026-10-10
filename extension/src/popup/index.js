@@ -44,6 +44,16 @@ async function getCurrentEtsyPage() {
   return page.listing;
 }
 
+async function showResultOnPage(imageUrl, result) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !/^https?:\/\/([^.]+\.)?etsy\.com\//i.test(tab.url || "")) return;
+  await chrome.tabs.sendMessage(tab.id, {
+    kind: "aid:show-result",
+    imageUrl,
+    result,
+  });
+}
+
 async function scanCurrentPage() {
   pageResults.hidden = false;
   imageResults.replaceChildren();
@@ -64,6 +74,7 @@ async function scanCurrentPage() {
         imageUrl: image.url,
         meta: listing,
       });
+      if (response?.ok) await showResultOnPage(image.url, response.result);
       imageResults.appendChild(createImageResult(image, response?.ok
         ? response
         : { ok: false, error: response?.error || "Analysis failed" }));

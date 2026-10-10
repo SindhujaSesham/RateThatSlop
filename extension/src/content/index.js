@@ -1,6 +1,8 @@
 const MAX_IMAGES = 20;
 const ETSY_HOST_RE = /(^|\.)etsy\.com$/i;
 const IGNORED_IMAGE_RE = /(avatar|icon|logo|sprite|badge|favicon|profile|shop[_-]?owner)/i;
+const analyzedResults = new Map();
+const inFlightImages = new Set();
 
 function isEtsyPage(location = window.location) {
   return ETSY_HOST_RE.test(location.hostname);
@@ -61,7 +63,8 @@ function collectPageData(doc = document, location = window.location) {
 
 function setImageBadge(img, result) {
   const host = img.parentElement;
-  if (!host || host.querySelector(".ratethatslop-image-badge")) return;
+  if (!host) return;
+  host.querySelector(".ratethatslop-image-badge")?.remove();
   if (getComputedStyle(host).position === "static") host.style.position = "relative";
   const badge = document.createElement("span");
   badge.className = "ratethatslop-image-badge";
@@ -74,8 +77,20 @@ function setImageBadge(img, result) {
   host.appendChild(badge);
 }
 
+function setImageBadges(imageUrl, result) {
+  for (const image of document.querySelectorAll("img")) {
+    if (getImageUrl(image) === imageUrl) setImageBadge(image, result);
+  }
+}
+
 async function analyzePageImages(data) {
   for (const image of data.listing.images) {
+    if (analyzedResults.has(image.url)) {
+      setImageBadges(image.url, analyzedResults.get(image.url));
+      continue;
+    }
+    if (inFlightImages.has(image.url)) continue;
+    inFlightImages.add(image.url);
     try {
       const response = await chrome.runtime.sendMessage({
         kind: "aid:analyze",
@@ -83,20 +98,30 @@ async function analyzePageImages(data) {
         meta: data.listing,
       });
       if (response?.ok) {
-        const element = [...document.querySelectorAll("img")]
-          .find((candidate) => getImageUrl(candidate) === image.url);
-        if (element) setImageBadge(element, response.result);
+        analyzedResults.set(image.url, response.result);
+        setImageBadges(image.url, response.result);
       }
     } catch (error) {
       console.warn("RateThatSlop could not analyze Etsy image:", error);
+    } finally {
+      inFlightImages.delete(image.url);
     }
   }
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.kind !== "aid:collect-page") return false;
-    sendResponse(collectPageData());
+    if (message?.kind === "aid:collect-page") {
+      sendResponse(collectPageData());
+      return false;
+    }
+    if (message?.kind === "aid:show-result" &&
+        typeof message.imageUrl === "string" &&
+        message.result) {
+      setImageBadges(message.imageUrl, message.result);
+      sendResponse({ ok: true });
+      return false;
+    }
     return false;
   });
 }
@@ -106,9 +131,43 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
     const data = collectPageData();
     if (data.ok && data.listing.images.length) analyzePageImages(data);
   };
+  let scanTimer = 0;
+  const scheduleScan = () => {
+    window.clearTimeout(scanTimer);
+    scanTimer = window.setTimeout(scan, 250);
+  };
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scan, { once: true });
+    document.addEventListener("DOMContentLoaded", scheduleScan, { once: true });
   } else {
-    scan();
+    scheduleScan();
+  }
+
+  if (typeof window.setTimeout === "function") {
+    for (const delay of [1500, 4000, 8000]) {
+      window.setTimeout(scan, delay);
+    }
+
+    if (typeof MutationObserver !== "undefined") {
+      const observer = new MutationObserver((mutations) => {
+        const relevant = mutations.some((mutation) => {
+          if (mutation.type === "childList") {
+            return [...mutation.addedNodes].some((node) =>
+              node.nodeType === Node.ELEMENT_NODE &&
+              (node.matches?.("img") || node.querySelector?.("img")));
+          }
+          return mutation.type === "attributes" &&
+            (mutation.target.matches?.("img") &&
+              ["src", "srcset", "data-src", "data-srcset"].includes(mutation.attributeName));
+        });
+        if (relevant) scheduleScan();
+      });
+      observer.observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["src", "srcset", "data-src", "data-srcset"],
+      });
+    }
   }
 }
