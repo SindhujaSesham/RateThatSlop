@@ -13,3 +13,7 @@ data/
 
 # The model placeholder is intentionally tracked until real weights are added.
 !extension/src/background/model.onnx
+
+#backend files
+backend/.env
+backend/node_modules/
