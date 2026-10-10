@@ -21,5 +21,6 @@ data/
 !extension/src/background/w5810_best_fp16.onnx
 
 #backend files
+.env
 backend/.env
 backend/node_modules/
