@@ -2,6 +2,7 @@
 const express = require("express");
 const supabase = require("./config/supabase");
 const patternRoutes = require("./routes/patterns");
+const requireAuth = require("./middleware/auth");
 
 const app = express();
 const PORT = 3000;
@@ -33,6 +34,15 @@ app.get("/api/test-db", async (req, res) => {
         patterns: data
     });
 });
+
+// Authenticated user info route
+app.get("/api/me", requireAuth, (req, res) => {
+    res.json({
+        id: req.user.id,
+        email: req.user.email
+    });
+});
+
 
 // Pattern_related routes
 app.use("/api/patterns", patternRoutes);
