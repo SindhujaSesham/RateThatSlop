@@ -5,14 +5,18 @@ const patternRoutes = require("./routes/patterns");
 const requireAuth = require("./middleware/auth");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Allows Express to read JSON sent in requests
 app.use(express.json());
 
 // Basic Check
+/*
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", message: "Rate that slop backend is running!" });
+});*/
+app.get("/api/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
 });
 
 // Existing database connection check
@@ -46,7 +50,8 @@ app.get("/api/me", requireAuth, (req, res) => {
 
 // Pattern_related routes
 app.use("/api/patterns", patternRoutes);
+
 // Start the server
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
 });
