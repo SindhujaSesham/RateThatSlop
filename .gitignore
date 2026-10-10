@@ -17,5 +17,9 @@ data/
 # personal Claude Code overrides
 .claude/settings.local.json
 
-# The bundled production model is intentionally tracked.
-!extension/src/background/w5810_best_fp16.onnx
+# The model placeholder is intentionally tracked until real weights are added.
+!extension/src/background/model.onnx
+
+#backend files
+backend/.env
+backend/node_modules/

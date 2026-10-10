@@ -53,6 +53,14 @@ function getText(doc, selectors) {
   return "";
 }
 
+function getListingId(doc = document, location = window.location) {
+  if (!isListingPage(location)) return "";
+  const pathMatch = String(location.pathname || "").match(/^\/listing\/(\d+)(?:\/|$)/i);
+  return doc.querySelector("[data-listing-id]")?.getAttribute("data-listing-id") ||
+    doc.querySelector("[data-product-id]")?.getAttribute("data-product-id") ||
+    pathMatch?.[1] || "";
+}
+
 function collectPageData(doc = document, location = window.location) {
   if (!isEtsyPage(location)) return { ok: false, error: "This is not an Etsy page." };
   return {
@@ -62,15 +70,10 @@ function collectPageData(doc = document, location = window.location) {
       title: getText(doc, ["h1", "[data-listing-title]", "[data-title]", 'meta[property="og:title"]']),
       seller: getText(doc, ["[data-shop-name]", "[data-seller-name]", ".shop-name", ".shop-name-text"]),
       price: getText(doc, ['[data-price]', ".currency-value", ".price"]),
+      listingId: getListingId(doc, location),
       pageUrl: location.href,
     },
   };
-}
-
-function getListingId(location = window.location) {
-  if (!isListingPage(location)) return "";
-  const match = String(location.pathname || "").match(/^\/listing\/(\d+)(?:\/|$)/i);
-  return match?.[1] || "";
 }
 
 function getAllText(doc, selectors, limit = 12000) {
@@ -82,7 +85,8 @@ function getAllText(doc, selectors, limit = 12000) {
       if (!value || seen.has(value)) continue;
       seen.add(value);
       values.push(value);
-      if (values.join("\n").length >= limit) return values.join("\n").slice(0, limit);
+      const combined = values.join("\n");
+      if (combined.length >= limit) return combined.slice(0, limit);
     }
   }
   return values.join("\n");
@@ -92,7 +96,7 @@ function scrapePostIdentity(doc = document, location = window.location) {
   const page = collectPageData(doc, location);
   if (!page.ok) return page;
   return {
-    listingId: getListingId(location),
+    listingId: page.listing.listingId,
     creator: page.listing.seller,
     price: page.listing.price,
     url: page.listing.pageUrl,
@@ -106,15 +110,14 @@ function scrapeProductInformation(doc = document) {
       '[data-testid="listing-page-description"]',
       '[data-listing-description]',
       '[data-testid="description"]',
-      ".wt-text-body-01",
+      'meta[name="description"]',
+      'meta[property="og:description"]',
     ]),
     instructions: getAllText(doc, [
       '[data-testid*="instruction"]',
       '[data-testid*="details"]',
       '[class*="instruction"]',
       '[class*="details"]',
-      "dl",
-      "ul",
     ]),
     attributes: getAllText(doc, [
       '[data-testid="listing-attribute"]',
@@ -165,7 +168,7 @@ function setImageBadge(img, result) {
   if (getComputedStyle(host).position === "static") host.style.position = "relative";
   const badge = document.createElement("span");
   badge.className = "ratethatslop-image-badge";
-  badge.textContent = result?.label === "likely-ai" ? "AI signal" : "Low AI signal";
+  badge.textContent = result?.label === "likely-ai" ? "Likely AI" : "Likely Real";
   badge.style.cssText = [
     "position:absolute", "top:8px", "left:8px", "z-index:2", "padding:4px 7px",
     "border-radius:999px", "font:600 11px system-ui,sans-serif", "color:#fff",
@@ -265,7 +268,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   const scan = () => {
     const data = collectPageData();
     if (data.ok && data.listing.images.length) analyzePageImages(data);
-    if (data.ok && getListingId()) {
+    if (isListingPage() && getListingId(document, window.location)) {
       chrome.runtime.sendMessage({ kind: "aid:scrape-post", post: scrapePostPage() })
         .catch(() => {});
     }
