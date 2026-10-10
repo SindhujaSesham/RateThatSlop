@@ -8,4 +8,5 @@ const manifest = JSON.parse(
 
 test("allows the offscreen inference document to fetch Etsy CDN images", () => {
   assert.ok(manifest.host_permissions.includes("*://*.etsystatic.com/*"));
+  assert.match(manifest.content_security_policy.extension_pages, /connect-src[^;]*https:\/\/\*\.etsystatic\.com/);
 });

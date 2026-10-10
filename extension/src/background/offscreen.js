@@ -38,10 +38,14 @@ async function getSession() {
 
 async function getBlob(imageUrl, imageData) {
   if (imageData) {
-    const response = await fetch(imageData);
-    if (!response.ok) throw new Error("image data could not be decoded");
-    return response.blob();
+    const match = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i.exec(imageData);
+    if (!match) throw new Error("image data must be a base64-encoded image");
+    const binary = atob(match[2]);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return new Blob([bytes], { type: match[1] });
   }
+
+  if (!imageUrl) throw new Error("imageUrl is required");
   const response = await fetch(imageUrl, { credentials: "omit", cache: "force-cache" });
   if (!response.ok) throw new Error(`image fetch failed: ${response.status}`);
   return response.blob();
