@@ -1,2 +1,80 @@
-# Change note: Add the build, packaging, and release workflow for this
-# extension here.
+name: Build extension
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build extension assets
+        run: npm run build
+
+      - name: Validate manifest and model hash
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFile } from "node:fs/promises";
+
+          const manifest = JSON.parse(await readFile("manifest.json", "utf8"));
+          const modelManifest = JSON.parse(await readFile("model_manifest.json", "utf8"));
+          const modelPath = "src/background/model.onnx";
+          const model = await readFile(modelPath);
+          const hash = createHash("sha256").update(model).digest("hex");
+
+          for (const path of [
+            manifest.background.service_worker,
+            "src/background/offscreen.html",
+            manifest.action.default_popup
+          ]) {
+            await readFile(path);
+          }
+
+          if (hash !== modelManifest.sha256) {
+            throw new Error(`Model hash mismatch: ${hash} != ${modelManifest.sha256}`);
+          }
+          console.log(`Validated ${manifest.name} and model ${modelManifest.version}`);
+          NODE
+
+      - name: Package extension
+        run: |
+          mkdir -p ../dist
+          zip -r "../dist/etsy-pattern-detector-${GITHUB_SHA}.zip" . \
+            -x "node_modules/*" "*.log"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: etsy-pattern-detector-${{ github.sha }}
+          path: dist/etsy-pattern-detector-${{ github.sha }}.zip
+
+      - name: Attach ZIP to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/etsy-pattern-detector-${{ github.sha }}.zip
