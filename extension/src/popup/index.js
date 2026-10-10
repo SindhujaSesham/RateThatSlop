@@ -3,7 +3,8 @@ const urlInput = document.querySelector("#image-url");
 const status = document.querySelector("#status");
 const result = document.querySelector("#result");
 const resultLabel = document.querySelector("#result-label");
-const resultScore = document.querySelector("#result-score");
+const resultSummary = document.querySelector("#result-summary");
+const resultScoreValue = document.querySelector("#result-score-value");
 const resultThreshold = document.querySelector("#result-threshold");
 const resultModel = document.querySelector("#result-model");
 const resultTime = document.querySelector("#result-time");
@@ -17,14 +18,30 @@ const scrapedDataSummary = document.querySelector("#scraped-data-summary");
 const scrapedDataOutput = document.querySelector("#scraped-data-output");
 const showScrapedDataButton = document.querySelector("#show-scraped-data");
 
+function resetToOpenState() {
+  result.hidden = true;
+  pageResults.hidden = true;
+  status.textContent = "";
+  imageResults.replaceChildren();
+}
+
 function showResult(value) {
+  const isAi = value.label === "likely-ai";
+  const percent = (value.score * 100).toFixed(0);
+  pageResults.hidden = true;
   result.hidden = false;
-  resultLabel.textContent = value.label === "likely-ai" ? "Likely AI-generated" : "Likely real";
-  resultScore.textContent = `AI likelihood: ${(value.score * 100).toFixed(1)}%`;
+  result.classList.toggle("is-ai", isAi);
+  resultScoreValue.textContent = `${percent}%`;
+  resultLabel.textContent = isAi ? "Likely AI-generated" : "Likely human-made";
+  resultSummary.textContent = isAi
+    ? "We checked this image and found patterns that often show up in AI-generated art."
+    : "We checked the visible listing images and found mostly natural details.";
   resultThreshold.textContent = `${(value.threshold * 100).toFixed(1)}%`;
   resultModel.textContent = value.modelVersion;
   resultTime.textContent = `${value.processingTimeMs} ms`;
 }
+
+resetToOpenState();
 
 function createImageResult(image, response) {
   const card = document.createElement("article");
@@ -38,6 +55,26 @@ function createImageResult(image, response) {
     : `Unavailable: ${response.error}`;
   card.append(thumbnail, text);
   return card;
+}
+
+async function loadImageDataUrl(imageUrl) {
+  if (!imageUrl) return "";
+  const image = new Image();
+  image.decoding = "async";
+  image.crossOrigin = "anonymous";
+  image.referrerPolicy = "no-referrer";
+  await new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = reject;
+    image.src = imageUrl;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth || image.width || 1;
+  canvas.height = image.naturalHeight || image.height || 1;
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.92);
 }
 
 async function getCurrentEtsyPage() {
@@ -84,6 +121,7 @@ async function showResultOnPage(imageUrl, result) {
 }
 
 async function scanCurrentPage() {
+  result.hidden = true;
   pageResults.hidden = false;
   imageResults.replaceChildren();
   pageSummary.textContent = "Finding listing images...";
@@ -107,9 +145,11 @@ async function scanCurrentPage() {
       return;
     }
     for (const image of listing.images) {
+      const imageData = await loadImageDataUrl(image.url).catch(() => "");
       const response = await chrome.runtime.sendMessage({
         kind: "aid:analyze",
         imageUrl: image.url,
+        imageData: imageData || undefined,
         meta: listing,
       });
       if (response?.ok) await showResultOnPage(image.url, response.result);
@@ -135,9 +175,12 @@ form.addEventListener("submit", async (event) => {
   status.textContent = "Analyzing locally...";
   analyzeButton.disabled = true;
   try {
+    const imageUrl = urlInput.value.trim();
+    const imageData = await loadImageDataUrl(imageUrl).catch(() => "");
     const response = await chrome.runtime.sendMessage({
       kind: "aid:analyze",
-      imageUrl: urlInput.value.trim(),
+      imageUrl,
+      imageData: imageData || undefined,
     });
     if (!response?.ok) throw new Error(response?.error || "Inference failed");
     showResult(response.result);
