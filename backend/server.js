@@ -1,6 +1,7 @@
 
 const express = require("express");
 const supabase = require("./config/supabase");
+const patternRoutes = require("./routes/patterns");
 
 const app = express();
 const PORT = 3000;
@@ -8,11 +9,12 @@ const PORT = 3000;
 // Allows Express to read JSON sent in requests
 app.use(express.json());
 
-// Test endpoint
+// Basic Check
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", message: "Rate that slop backend is running!" });
 });
 
+// Existing database connection check
 app.get("/api/test-db", async (req, res) => {
     const { data, error } = await supabase
         .from("patterns")
@@ -32,6 +34,8 @@ app.get("/api/test-db", async (req, res) => {
     });
 });
 
+// Pattern_related routes
+app.use("/api/patterns", patternRoutes);
 // Start the server
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
