@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+dist/
+*.onnx
+*.safetensors
+data/
+.venv/
+
+# personal Claude Code overrides
+.claude/settings.local.json
+
+# The model placeholder is intentionally tracked until real weights are added.
+!extension/src/background/model.onnx
