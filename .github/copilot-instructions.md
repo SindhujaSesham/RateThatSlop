@@ -1,0 +1,289 @@
+# RateThatSlop Project Guidelines
+
+## Project Scope
+
+RateThatSlop is a Chrome Manifest V3 extension for detecting potentially
+AI-generated sewing-pattern images on Etsy and presenting a separate,
+explainable listing-risk rating. Keep the extension local-first: image inference runs in the browser and image
+bytes must never be uploaded by ordinary server lookups, score reads, score
+submissions, reports, or description evaluation. Server synchronization is
+authenticated and opt-in at the feature level. Image inference remains local
+by default.
+
+## Architecture
+
+- `extension/src/background/index.js` owns message routing, model-manifest
+  loading, inference requests, caching, and error propagation.
+- Prefer an offscreen document for ONNX Runtime image decoding and inference:
+  `extension/src/background/offscreen.html` and
+  `extension/src/background/offscreen.js`.
+- `extension/src/content/index.js` owns Etsy DOM discovery, listing metadata
+  extraction, throttled image requests, and page badges. Keep model logic out
+  of the content script.
+- Treat `extension/src/content/index.js` as the stable Etsy integration
+  surface for the current scraper contract. When changing inference routing,
+  do not modify this file unless the user explicitly requests it; adapt the
+  background or popup message flow instead.
+- The `aid:analyze` response consumed by the content script must remain
+  `{ ok: true, result: { score, label, threshold, modelVersion, imageId,
+  processingTimeMs } }` on success and `{ ok: false, error }` on failure.
+  Preserve the full structured result when routing model output; do not
+  replace it with a bare score or a success-shaped fallback.
+- Popup-triggered results may be routed back to the Etsy tab with
+  `aid:show-result`; preserve the same structured result and apply it to every
+  matching image element, not only the first DOM match.
+- `extension/src/popup/` owns pasted-image analysis, current-page summaries,
+  loading/error states, and accessible result display.
+- Keep raw image detection separate from listing rating. Detection estimates
+  AI likelihood; rating combines image evidence with carefully bounded listing
+  signals.
+- Maintain two explicit image sets in the Etsy content integration:
+  - Listing evidence images are the current post's gallery images and review
+    photos used by the listing scraper/rating payload.
+  - Page-analysis images include every eligible Etsy-hosted product image on
+    the page, including recommendations and related listings, so each can be
+    independently tested for AI likelihood.
+  Related/recommendation image results may receive badges and remain in the
+  inference cache, but must never be included in the current listing's scraped
+  rating data.
+- Server-backed signals include trusted creators, Etsy user reviews, extension
+  user reports, stored listing ratings, and per-image analysis scores. These
+  are account-gated features and must use authenticated API requests.
+- A signed-in user may read shared listing data and contribute reports. An
+  unsigned user may use local image inference but must not access any server
+  feature or AI description evaluation.
+- Prefer a server-stored listing rating when a matching listing record is
+  available and fresh. Run local image inference when the listing is not
+  stored, the cache is stale, or the user is not signed in.
+- Match stored image results by the SHA-256 image-byte hash, not by URL.
+  Server image results must be checked before the local inference cache;
+  matching results skip ONNX processing, while missing or stale images fall
+  back to local inference.
+- Do not upload image bytes for server operations. Score submissions may
+  include listing metadata, normalized scores, image hashes, and optional
+  image URLs, but never image data. Any future remote image processing
+  requires explicit opt-in and separate privacy documentation.
+- Keep server-provided ratings distinguishable from fresh local image
+  inference, and show which signals were used and when they were calculated.
+- Keep training datasets, checkpoints, and experimental training scripts out
+  of the browser extension repository unless explicitly needed.
+- Use `RateThatSlop` for user-facing branding, package metadata, release
+  artifacts, and documentation. Keep implementation names and paths stable
+  unless a technical rename is required.
+
+## Model and Detection
+
+- The bundled model is binary ONNX data; never edit it as text.
+- The current model file is
+  `extension/src/background/w5810_best_fp16.onnx`. Any inference code and
+  build packaging must use the same filename consistently.
+- The bundled ONNX model and vendored runtime files are shipped assets and
+  must remain trackable; do not add them to ignore rules. The model exception
+  in `.gitignore` must match `w5810_best_fp16.onnx`.
+- Verify the model SHA-256 against `extension/model_manifest.json` before
+  changing model metadata or calibration.
+- `imageId` must be the SHA-256 hash of the fetched image bytes, calculated
+  with the browser Web Crypto API in the offscreen document. Encode it
+  compactly (base64url is preferred) and never use the full image URL or
+  data URL as the image identity.
+- Hashing and inference should share the same fetched `Blob` or byte buffer
+  whenever possible; do not fetch each uncached image twice merely to hash it
+  and then infer it. Release temporary image data after processing.
+- Follow the manifest for input size, resize behavior, normalization,
+  calibration, and test-time augmentation.
+- Return structured results containing at least the score, label or confidence
+  band, threshold, model version, and processing time.
+- Distinguish inference failures from a low AI score; never use a successful
+  zero score as an error fallback.
+- Start with the Sieve model as a baseline. Do not tune final thresholds or
+  calibration until a representative sewing-pattern validation set exists.
+- Use low, uncertain, and high confidence bands rather than presenting one
+  score as proof of deception.
+
+## Listing Rating and Weighting
+
+- Do not treat a new seller, missing metadata, or AI-looking imagery alone as
+  proof of fraud or poor seller quality.
+- Implement rating logic separately, preferably in
+  `extension/src/background/rating.js`.
+- Image evidence should be the dominant signal. Seller history and metadata
+  should be weak, bounded contextual signals.
+- Define the rating inputs and output reasons before optimizing weights.
+- Tune weights only with labeled, manually reviewed Etsy examples and keep a
+  held-out test set separate from calibration data.
+- Measure precision, recall, F1, balanced accuracy, false-positive rate on
+  real listings, and false-negative rate on AI-generated listings.
+
+## Etsy Integration
+
+- Support listing pages and search-result pages first.
+- On listing pages, scope current-post gallery extraction to Etsy's listing
+  gallery markers such as
+  `.listing-page-image-carousel-component [data-palette-listing-image] img`
+  and `[data-listing-image] img`. Scope customer-uploaded review photos to
+  `[data-location="customer-photo-section"] img`. Do not use broad
+  `data-palette-listing-image` selectors because Etsy also applies that marker
+  to recommendation cards.
+- Keep page-wide AI analysis separate from scraped listing evidence: analyze
+  all eligible Etsy-hosted images, including related/recommended images, while
+  excluding tracking pixels, avatars, icons, logos, and other utility images
+  from the analyzable set.
+- Deduplicate image URLs, ignore avatars/icons/logos, throttle requests, and
+  cap automatic page scans at the current product decision limit of 100 images
+  unless the user explicitly changes that limit. Keep a finite cap even when
+  server-backed listing ratings later reduce local inference work.
+- Automatic scans must account for Etsy's lazy-loaded and dynamically inserted
+  images: perform an initial delayed scan, bounded follow-up scans, and a
+  targeted `MutationObserver` for image additions or URL changes. Debounce
+  rescans and cache completed image results so the same URL is not inferred
+  repeatedly.
+- The inference cache stores only compact result metadata and bounded keys;
+  never retain downloaded image bytes, full `imageData` strings, or URL-based
+  result identities. Persistent inference results must be keyed by the
+  SHA-256 hash of the fetched image bytes.
+- Page scans must batch-check all candidate image URLs against the cache before
+  starting any uncached inference. Keep persistent cache hits separate from
+  the uncached processing queue, and prevent overlapping delayed scans from
+  starting duplicate work.
+- Batch hashing and inference must use bounded concurrency and explicit
+  per-image error handling; one unavailable or invalid image must not abort
+  the complete page scan or create unbounded simultaneous fetches.
+- Do not rescan the entire page for every mutation, and do not assume the DOM
+  is complete at `document_idle`.
+- Treat title, seller, review count, price, and listing URL as optional
+  metadata because Etsy's DOM can change.
+- Prefer Etsy-specific selectors when available, including
+  `[data-seller-cred-anchor]`, `.wt-text-title-larger`, and
+  `[data-product-details-description-text-content]`; keep fallbacks narrow
+  enough to avoid navigation, recommendation, advertisement, and badge text.
+- A listing page is only a page whose Etsy host pathname matches
+  `/listing/<numeric-id>`; do not scrape search, shop, market, or lookalike
+  paths.
+
+### Etsy listing-page organization reference
+
+- The listing URL and numeric ID identify the current post. Prefer the
+  `/listing/<numeric-id>` path and stable listing IDs over query parameters,
+  referral codes, or image URLs.
+- The main product gallery is contained by
+  `.listing-page-image-carousel-component`. Its product panes use
+  `[data-palette-listing-image]` or `[data-listing-image]`, with image IDs in
+  `data-image-id` and product-image URLs in `src`, `srcset`,
+  `data-src-zoom-image`, or the overlay's `data-delay-src`.
+- The seller link uses `[data-seller-cred-anchor]`. The visible creator name
+  is the link text; the shop URL and referral query parameters are contextual
+  metadata, not the creator identity.
+- The price is displayed in `.wt-text-title-larger`; remove the
+  screen-reader `Price:` prefix before storing it.
+- The product details section uses
+  `[data-product-details-description-text-content]`. It can contain
+  description, instructions, sizing, materials, links, disclaimers, and
+  contact text. Treat this as product information rather than as review text.
+- Review summary data is grouped under `.reviews-header-ratings`, including
+  the item average, review count, item quality, shipping, customer service,
+  and buyer-recommendation values.
+- Individual reviews are separate from the summary and may include review
+  text, star values, reviewer metadata, dates, and purchase photos. Customer
+  photos are marked with
+  `[data-location="customer-photo-section"]`.
+- Related products, shop recommendations, visual-search cards, and related
+  searches occur elsewhere on the page. They commonly reuse Etsy listing
+  markers such as `data-palette-listing-image`, so they must not be confused
+  with the current product gallery.
+- Etsy adds badges, navigation, advertisements, loading controls, tracking
+  pixels, and recommendation content to the same document. Avoid broad
+  selectors such as all `ul`, all `.details`, or all page images when
+  extracting listing data.
+- Sections may be lazy-loaded or changed by client-side rendering. Use narrow
+  selectors, bounded delayed scans, and targeted mutation handling rather than
+  assuming the initial DOM contains the complete listing.
+- Badges must use text as well as color, include loading and unavailable
+  states, apply to all matching image elements, and make clear that results
+  are automated estimates.
+
+## Build and Test
+
+- Node.js and npm are developer/build prerequisites only. End users should
+  receive a packaged or Chrome Web Store extension and must not need Node.js,
+  npm, Python, an API key, or a separate inference server.
+- Run commands from `extension/`.
+- Install dependencies with `npm install` or `npm ci`.
+- Build with `npm run build`.
+- Run tests with `npm test`.
+- Validate manifest paths and model presence after building.
+- The current inference implementation explicitly uses ONNX Runtime's WASM
+  execution provider. Test that path; add WebGPU coverage only after a
+  WebGPU execution-provider path is implemented.
+- Add tests for preprocessing, calibration, invalid images, Etsy DOM
+  extraction, deduplication, dynamic/lazy-loaded listings, repeated image
+  badge routing, popup states, and rating boundaries.
+- Do not claim the extension is complete while the model, offscreen runtime,
+  popup, or Etsy content script is still a placeholder.
+
+### Browser smoke test
+
+- Run `npm install`, `npm test`, and `npm run build` from `extension/`.
+- Load the `extension/` directory in Chrome through `chrome://extensions` >
+  **Developer mode** > **Load unpacked**. After changes, use the extension's
+  **Reload** button before testing.
+- Use the extension popup for the primary manual model test. Paste a direct
+  image URL, such as an `i.etsystatic.com` image URL, and click **Analyze
+  image**. The result should include the AI likelihood, label, threshold,
+  model version, and processing time.
+- Test the service worker and offscreen runtime through the popup flow rather
+  than sending `chrome.runtime.sendMessage` from the service worker's own
+  console; that console is not a reliable receiving context for the service
+  worker's message listener.
+- Treat the score as a calibrated automated estimate, not proof that an image
+  is AI-generated, fraudulent, or evidence of poor seller quality. The first
+  inference may be slower because ONNX Runtime and the model session are
+  initialized; later requests should reuse the loaded session.
+- For distribution, package the built contents of `extension/` without
+  `node_modules/`; retain `manifest.json`, the model, `model_manifest.json`,
+  popup files, and `vendor/ort/`. Prefer Chrome Web Store distribution for
+  low-setup installation and automatic updates.
+
+## Privacy and Documentation
+
+- Update `README.md` and create or maintain `PRIVACY.md` when behavior changes.
+- Document model provenance, model version, thresholds, known limitations, and
+  whether any image or listing metadata leaves the browser.
+- Document authentication, server endpoints, data minimization, retention,
+  account deletion, report moderation, and the seven-day server listing-cache
+  freshness policy whenever server behavior changes.
+- Preserve required licenses and attribution for Sieve code, ONNX Runtime,
+  model weights, and copied assets.
+
+## Server Integration
+
+- `extension/src/background/api-client.js` owns authenticated requests to the
+  RateThatSlop server and must centralize authorization, response validation,
+  timeout handling, and explicit error propagation. Its current operations are
+  listing-score reads, listing-score submissions, and description evaluation.
+- `extension/src/background/auth.js` owns the stored access-token session and
+  expiry handling. Never log credentials or access tokens. Do not make local
+  image inference depend on server availability.
+- `extension/src/background/listing-cache.js` owns local caching of server
+  listing records and ratings. Cache keys use `etsy:<numeric-listing-id>`,
+  never an image URL or unnormalized page URL. Image-byte hashes identify
+  analyzed image files and must not be treated as listing identities. Cached
+  records are valid for seven days and must be cleared on logout.
+- `extension/src/popup/auth-ui.js` owns login and account controls when that
+  UI is implemented; it must expose signed-out and server-unavailable states
+  accessibly.
+- Backend server routes are mounted in `backend/server.js`: authenticated
+  score reads and writes are under `/api/scores`, description evaluation is
+  under `/api/descriptions/evaluate`, and reports remain under
+  `/api/reports`. Keep server responses structured so the UI can display the
+  overall score, per-image scores, source, model/scoring versions, reasons,
+  and calculation timestamps.
+- Backend score writes must validate numeric scores to the unit interval,
+  cap submissions at 100 images, and store image hashes rather than image
+  bytes. Database constraints and validation must remain aligned.
+- Keep server feature tests in `extension/test/api-client.test.js`,
+  `extension/test/auth.test.js`, and
+  `extension/test/listing-cache.test.js`.
+- Do not add credentials or tokens to source-controlled configuration. The
+  server base URL may be provided through approved extension deployment
+  configuration (`serverBaseUrl`); backend secrets remain in environment
+  configuration.
