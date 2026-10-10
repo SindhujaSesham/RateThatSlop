@@ -1,13 +1,103 @@
 # RateThatSlop
 
-> Change note: Replace this placeholder with project-specific setup, build,
-> privacy, model, and Etsy integration documentation.
+RateThatSlop is a Manifest V3 Chrome extension that estimates whether Etsy
+sewing-pattern listing images may be AI-generated. Inference runs locally in
+the browser using the bundled ONNX model.
 
-This repository is the initial extension structure for RateThatSlop, which
-detects potentially
-AI-generated sewing-pattern listings on Etsy. The implementation is intentionally
-scaffolded; see the change notes in the extension files for the next work areas.
+The authenticated server provides shared listing ratings, per-image analysis
+scores, trusted creator information, Etsy review data, and extension user
+reports. Signed-in users can read those signals and explicitly submit compact
+listing snapshots. Unsigned users remain local-only and cannot read or write
+server data or request AI description evaluation.
+
+## Development
+
+Run these commands from [`extension/`](./extension/):
+
+```powershell
+npm install
+npm test
+npm run build
+```
+
+The tests cover Etsy host validation, image deduplication/filtering, and
+listing metadata extraction. The build vendors the local ONNX Runtime files
+needed by the offscreen inference document.
+
+## Using the Etsy scraper
+
+1. Build the extension and load [`extension/`](./extension/) as an unpacked
+   extension at `chrome://extensions`.
+2. After every rebuild, click the extension's **Reload** button, then reload
+   the Etsy tab itself. Content scripts are injected into a tab only when that
+   page loads.
+3. Open the RateThatSlop popup and choose **Scan current Etsy page**.
+4. The popup lists each suitable product image it found and its local AI
+   likelihood. Direct image URLs can still be analyzed individually.
+
+The scraper deduplicates image URLs, ignores common avatars/icons/logos, caps
+scans at 100 images, and extracts title, seller, price, and page URL when the
+Etsy DOM exposes them. The cap prevents an unexpectedly large page from
+triggering unbounded local inference. Etsy can change its markup, so missing
+metadata is expected and does not prevent image analysis.
+
+When a listing page is opened, three bounded scrapers collect listing identity,
+product instructions/details, and review/rating/image inputs. Scraping can be
+disabled with the `scrapingEnabled` extension-storage setting. A listing is
+skipped when its listing ID is already marked in the local post cache. The
+cache stores the creator, price, URL, name, image-byte hashes, and an optional
+structured AI rating; raw description and review text is passed only to the
+processing boundary and is not persisted by the extension.
+
+Completed image-inference results are stored as compact metadata in the
+extension's local cache, keyed by the SHA-256 hash of the fetched image
+bytes rather than by an image URL. A page scan hashes all candidate images
+and checks those hashes for cached results before starting new local
+inference, so URL changes and service-worker restarts do not force the same
+image to be reprocessed.
+
+The extension requests Etsy CDN host access because product images are commonly
+served from `i.etsystatic.com`, not `etsy.com`. Images are fetched by the
+local offscreen inference document and are not uploaded to a remote service.
+In the server-backed flow, a signed-in user can download a fresh stored rating
+for a known listing. Each image is matched by its local SHA-256 image-byte hash;
+matching server results are shown without running local inference, while
+missing or stale results fall back to local inference. Server records are
+cached for seven days. Image inference remains local and image bytes are never
+uploaded by these APIs.
 
 The initial local inference runtime and model manifest were copied from the
 Sieve image detector project. The original project is available at
 https://github.com/Phineas1500/sieve-ai-image-detector.
+
+See [`PRIVACY.md`](./PRIVACY.md) for the data flow and limitations.
+
+## Backend API
+
+The server implementation is in [`backend/`](./backend/). Start it from that
+directory after configuring `SUPABASE_URL` and `SUPABASE_KEY` in
+`.env`:
+
+```powershell
+npm install
+npm start
+```
+
+Routes are grouped by responsibility:
+
+- `GET /api/health` and `GET /api/test-db` are health checks.
+- `GET /api/me` returns the authenticated Supabase user.
+- `GET /api/patterns/:platform/:listingId` retrieves a listing record.
+- `GET /api/scores/:platform/:listingId` retrieves the latest stored score and
+  its image analyses.
+- `POST /api/scores` stores a listing identity, overall signal scores, and
+  compact per-image scores. It accepts hashes and optional URLs, never image
+  bytes.
+- `POST /api/descriptions/evaluate` evaluates description text with AI and
+  requires authentication.
+- `GET /api/reports/:platform/:listingId` and `POST /api/reports` provide
+  authenticated report access and submission.
+
+Report submissions create the listing record when necessary and upsert one
+report per authenticated user and listing. Report and score endpoints never
+accept or upload image bytes.
