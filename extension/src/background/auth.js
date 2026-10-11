@@ -111,6 +111,44 @@ export async function signInWithPassword({ email, password }) {
     ? { id: body.user.id, email: body.user.email } : null };
 }
 
+export async function signUpWithPassword({ email, password }) {
+  if (typeof email !== "string" || !email.trim() ||
+      typeof password !== "string" || !password) {
+    throw new Error("Email and password are required.");
+  }
+  const { supabaseUrl, publishableKey } = await authConfig();
+  const response = await fetchAuth(`${supabaseUrl}/auth/v1/signup`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: publishableKey,
+    },
+    body: JSON.stringify({ email: email.trim(), password }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const reason = typeof body.msg === "string" ? body.msg
+      : typeof body.error_description === "string" ? body.error_description
+        : typeof body.message === "string" ? body.message : "Sign-up failed.";
+    throw new Error(`Supabase sign-up failed (HTTP ${response.status}): ${reason}`);
+  }
+  if (typeof body.access_token === "string" && body.access_token) {
+    await setSession({
+      accessToken: body.access_token,
+      expiresAt: Number.isFinite(Number(body.expires_at))
+        ? new Date(Number(body.expires_at) * 1000).toISOString()
+        : null,
+      user: body.user && typeof body.user === "object"
+        ? { id: body.user.id, email: body.user.email } : null,
+    });
+  }
+  return {
+    user: body.user && typeof body.user === "object"
+      ? { id: body.user.id, email: body.user.email } : null,
+    requiresEmailConfirmation: !body.access_token,
+  };
+}
+
 function chromeStorage() {
   if (typeof chrome === "undefined" || !chrome.storage?.local) {
     throw new Error("extension storage is unavailable");

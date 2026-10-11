@@ -1,7 +1,7 @@
 // Model orchestration service: owns the cache and forwards image requests to
 // the offscreen document, where ONNX Runtime can decode and process images.
 import { apiClient } from "./api-client.js";
-import { checkSignInSetup, clearSession, getAccessToken, getSession, signInWithPassword } from "./auth.js";
+import { checkSignInSetup, clearSession, getAccessToken, getSession, signInWithPassword, signUpWithPassword } from "./auth.js";
 import { getSettings, isSettingEnabled, setSettings } from "./settings.js";
 import {
   cacheListing,
@@ -304,6 +304,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.kind === "aid:sign-in") {
     signInWithPassword({ email: message.email, password: message.password })
       .then((result) => sendResponse({ ok: true, user: result.user }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:sign-up") {
+    signUpWithPassword({ email: message.email, password: message.password })
+      .then((result) => sendResponse({
+        ok: true,
+        user: result.user,
+        requiresEmailConfirmation: result.requiresEmailConfirmation,
+      }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }

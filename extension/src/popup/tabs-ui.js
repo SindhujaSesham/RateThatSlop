@@ -1,4 +1,4 @@
-// Scores, signup/login form UI, and local Settings preferences.
+// Scores, Supabase authentication, and local Settings preferences.
 // Authentication is NOT connected to Supabase yet.
 import { showView } from "./navigation.js";
 
@@ -88,8 +88,6 @@ document.addEventListener("rts:analysis", (event) => {
   updateScoreSummary();
 });
 
-// The form UI is fully navigable. Submitting credentials is intentionally
-// blocked until the real background authentication handler is implemented.
 let authMode = "login";
 const authForm = $("#auth-form");
 const authHeading = $("#auth-heading");
@@ -97,6 +95,46 @@ const authSubmit = $("#auth-submit");
 const authSwitch = $("#auth-switch");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
+const settingsNote = $("#settings-note");
+const deployedServerUrl = "https://rate-my-slop-xzld5.ondigitalocean.app";
+
+function sendBackgroundMessage(message) {
+  return chrome.runtime.sendMessage(message);
+}
+
+function setSettingsEnabled(enabled) {
+  document.querySelectorAll("[data-setting]").forEach((control) => {
+    control.disabled = !enabled;
+    control.closest(".setting-row")?.classList.toggle("locked", !enabled);
+  });
+  settingsNote.textContent = enabled
+    ? "Settings are available for this signed-in session."
+    : "Log in to unlock settings.";
+}
+
+async function configureServer() {
+  const configured = await sendBackgroundMessage({
+    kind: "aid:configure-server",
+    serverBaseUrl: deployedServerUrl,
+  });
+  if (!configured?.ok) throw new Error(configured?.error || "Could not configure the API server.");
+  const setup = await sendBackgroundMessage({ kind: "aid:check-sign-in-setup" });
+  if (!setup?.ok) throw new Error(setup?.error || "Sign-in setup check failed.");
+}
+
+async function loadAuthState() {
+  const response = await sendBackgroundMessage({ kind: "aid:get-auth-state" });
+  if (!response?.ok) throw new Error(response.error || "Could not read sign-in state.");
+  if (response.user) {
+    authFeedback.textContent = `Signed in as ${response.user.email || "account"}.`;
+    authSubmit.textContent = "Signed in";
+    authSubmit.disabled = true;
+    authSwitch.hidden = true;
+    setSettingsEnabled(true);
+  } else {
+    setSettingsEnabled(false);
+  }
+}
 
 function updateAuthMode() {
   const registering = authMode === "signup";
@@ -114,16 +152,50 @@ authSwitch.addEventListener("click", () => {
 });
 authForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  authFeedback.textContent = "Authentication is not connected yet. Next step: connect this form to Supabase.";
-  password.value = "";
+  authSubmit.disabled = true;
+  authFeedback.textContent = authMode === "signup" ? "Creating account…" : "Signing in…";
+  const email = $("#auth-email").value.trim();
+  const passwordValue = password.value;
+  const kind = authMode === "signup" ? "aid:sign-up" : "aid:sign-in";
+  configureServer()
+    .then(() => sendBackgroundMessage({ kind, email, password: passwordValue }))
+    .then((response) => {
+      if (!response?.ok) throw new Error(response?.error || "Authentication failed.");
+      password.value = "";
+      if (authMode === "signup" && response.requiresEmailConfirmation) {
+        authFeedback.textContent = "Account created. Check your email to confirm it, then log in.";
+        authSubmit.disabled = false;
+        return;
+      }
+      authFeedback.textContent = `Signed in as ${response.user?.email || email}.`;
+      authSubmit.textContent = "Signed in";
+      authSwitch.hidden = true;
+      setSettingsEnabled(true);
+    })
+    .catch((error) => {
+      authFeedback.textContent = error.message;
+      authSubmit.disabled = false;
+    });
 });
 
-// All settings require authentication. For now, keep every switch disabled.
-// Do not load/store local preferences or allow changes before sign-in.
-// A future auth:status handler will enable them after verifying a real session.
 document.querySelectorAll("[data-setting]").forEach((control) => {
-  control.disabled = true;
-  control.closest(".setting-row")?.classList.add("locked");
+  control.addEventListener("change", async () => {
+    try {
+      const response = await sendBackgroundMessage({
+        kind: "aid:set-settings",
+        settings: { [control.dataset.setting]: control.checked },
+      });
+      if (!response?.ok) throw new Error(response?.error || "Could not save setting.");
+    } catch (error) {
+      control.checked = !control.checked;
+      authFeedback.textContent = error.message;
+    }
+  });
+});
+
+setSettingsEnabled(false);
+loadAuthState().catch((error) => {
+  authFeedback.textContent = error.message;
 });
 
 // The scanner is guest-accessible and runs on an Etsy listing at popup start.
