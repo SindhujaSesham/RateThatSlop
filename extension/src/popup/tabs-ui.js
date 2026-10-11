@@ -8,6 +8,7 @@ const scoresEmpty = $("#scores-empty");
 const scoresData = $("#scores-data");
 const scoresImages = $("#scores-images");
 const scoresHeading = $("#scores-heading");
+const descriptionAssessment = $("#scores-description-assessment");
 //const scoresSummary = $("#scores-summary");
 
 const retryButton = $("#scores-retry");
@@ -82,6 +83,7 @@ document.addEventListener("rts:analysis-start", (event) => {
   currentListingScore = event.detail.listingScore || null;
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
+  renderDescriptionAssessment(event.detail.descriptionAssessment);
   //scoresHeading.textContent = event.detail.title;
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
   updateScoreSummary();
@@ -181,6 +183,7 @@ async function loadAuthState() {
     authSwitch.hidden = true;
     authSignOut.hidden = false;
     setSettingsEnabled(true);
+    document.dispatchEvent(new Event("rts:scan-requested"));
   } else {
     authSignOut.hidden = true;
     setSettingsEnabled(false);

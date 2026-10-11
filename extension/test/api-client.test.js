@@ -23,7 +23,7 @@ test("description evaluation forwards scraped listing details without image data
 
 	await client.evaluateDescription("A sewing pattern description", listingDetails);
 
-	assert.equal(requestUrl, "https://api.example.test/api/descriptions/evaluate");
+	assert.equal(requestUrl, "https://api.example.test/api/evaluate-description");
 	assert.deepEqual(JSON.parse(requestOptions.body), {
 		description: "A sewing pattern description",
 		listingDetails,

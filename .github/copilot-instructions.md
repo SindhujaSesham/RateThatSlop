@@ -43,7 +43,12 @@ by default.
 - `extension/src/popup/tabs-ui.js` owns the merged authentication and Scores
   presentation. Route listing scan state through the `rts:analysis-start`,
   `rts:analysis-progress`, `rts:analysis`, and `rts:scan-unavailable` events
-  rather than rendering results in a second legacy UI.
+  rather than rendering results in a second legacy UI. Description assessment
+  state must use the live `scores-description-assessment` element and
+  `rts:description-assessment` events, showing pending, available, and
+  explicit failure or signed-out states. A successful login must retry the
+  current listing scan so a prior signed-out assessment can be replaced with
+  the authenticated result.
 - Keep raw image detection separate from listing rating. Detection estimates
   AI likelihood; rating combines image evidence with carefully bounded listing
   signals.
@@ -324,10 +329,12 @@ by default.
   operations.
 - Backend server routes are mounted in `backend/server.js`: authenticated
   score reads and writes are under `/api/scores`, description evaluation is
-  under `/api/descriptions/evaluate`, and reports remain under
-  `/api/reports`. Keep server responses structured so the UI can display the
-  overall score, per-image scores, source, model/scoring versions, reasons,
-  and calculation timestamps.
+  under `/api/evaluate-description`, and reports remain under `/api/reports`.
+  Description evaluation remains authenticated and returns the structured AI
+  assessment for the popup; preserve explicit non-JSON/error responses when
+  diagnosing deployment problems. Keep server responses structured so the UI
+  can display the overall score, per-image scores, source, model/scoring
+  versions, reasons, and calculation timestamps.
 - Backend score writes must validate numeric scores to the unit interval,
   cap submissions at 100 images, and store image hashes rather than image
   bytes. Database constraints and validation must remain aligned.

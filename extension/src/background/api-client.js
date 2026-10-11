@@ -67,7 +67,7 @@ export function createApiClient({
       return request("/api/scores", { method: "POST", body: JSON.stringify(payload) });
     },
     evaluateDescription(description, listingDetails = {}) {
-      return request("/api/descriptions/evaluate", {
+      return request("/api/evaluate-description", {
         method: "POST",
         body: JSON.stringify({ description, listingDetails }),
       });
