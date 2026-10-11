@@ -43,7 +43,22 @@ loadSettings().catch((error) => {
 async function getCurrentEtsyPage() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("Could not find the active tab.");
-  const page = await chrome.tabs.sendMessage(tab.id, { kind: "aid:collect-page" });
+  let page;
+  try {
+    page = await chrome.tabs.sendMessage(tab.id, { kind: "aid:collect-page" });
+  } catch (error) {
+    if (!/Could not establish connection|Receiving end does not exist/i.test(error?.message || "")) {
+      throw error;
+    }
+    if (!chrome.scripting?.executeScript) {
+      throw new Error("The Etsy page scanner is not connected. Reload the Etsy tab and try again.");
+    }
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["src/content/index.js"],
+    });
+    page = await chrome.tabs.sendMessage(tab.id, { kind: "aid:collect-page" });
+  }
   if (!page?.ok) throw new Error(page?.error || "Could not read this page.");
   return page.listing;
 }
