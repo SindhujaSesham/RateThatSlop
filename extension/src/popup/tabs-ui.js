@@ -140,6 +140,13 @@ document.addEventListener("rts:analysis", (event) => {
   updateScoreSummary();
 });
 
+document.addEventListener("rts:server-upload-failed", (event) => {
+  const message = event.detail?.message || "Server upload failed.";
+  authFeedback.textContent = /sign-in is required/i.test(message)
+    ? "This scan was kept locally. Sign in again before uploading scores."
+    : `Score upload failed: ${message}`;
+});
+
 let authMode = "login";
 const authForm = $("#auth-form");
 const authHeading = $("#auth-heading");
@@ -162,36 +169,49 @@ function setSettingsEnabled(enabled) {
     control.closest(".setting-row")?.classList.toggle("locked", !enabled);
   });
 
-  $("#server-check").addEventListener("click", async () => {
-    diagnosticOutput.hidden = false;
-    diagnosticOutput.textContent = "Running authenticated server checks…";
+  settingsNote.textContent = enabled
+    ? "Settings are available for this signed-in session."
+    : "Log in to unlock settings.";
+}
+
+$("#server-check").addEventListener("click", async () => {
+  diagnosticOutput.hidden = false;
+  diagnosticOutput.textContent = "Running authenticated server checks…";
+  try {
     const response = await sendBackgroundMessage({ kind: "aid:run-server-diagnostics" });
     diagnosticOutput.textContent = response?.ok
       ? JSON.stringify(response.diagnostics, null, 2)
       : `Server checks failed: ${response?.error || "unknown error"}`;
-  });
+  } catch (error) {
+    diagnosticOutput.textContent = `Server checks failed: ${error.message}`;
+  }
+});
 
-  $("#view-logs").addEventListener("click", async () => {
-    diagnosticOutput.hidden = false;
+$("#view-logs").addEventListener("click", async () => {
+  diagnosticOutput.hidden = false;
+  try {
     const response = await sendBackgroundMessage({ kind: "aid:get-diagnostics" });
     diagnosticOutput.textContent = response?.ok && response.logs.length
       ? response.logs.map((entry) =>
         `[${entry.at}] ${entry.event} ${entry.details ? JSON.stringify(entry.details) : ""}`,
       ).join("\n")
       : response?.ok ? "No diagnostic logs." : `Could not read logs: ${response?.error || "unknown error"}`;
-  });
+  } catch (error) {
+    diagnosticOutput.textContent = `Could not read logs: ${error.message}`;
+  }
+});
 
-  $("#clear-cache").addEventListener("click", async () => {
+$("#clear-cache").addEventListener("click", async () => {
+  diagnosticOutput.hidden = false;
+  try {
     const response = await sendBackgroundMessage({ kind: "aid:clear-cache" });
-    diagnosticOutput.hidden = false;
     diagnosticOutput.textContent = response?.ok
       ? `Cleared ${response.removed} local cache entries and diagnostic logs.`
       : `Could not clear cache: ${response?.error || "unknown error"}`;
-  });
-  settingsNote.textContent = enabled
-    ? "Settings are available for this signed-in session."
-    : "Log in to unlock settings.";
-}
+  } catch (error) {
+    diagnosticOutput.textContent = `Could not clear cache: ${error.message}`;
+  }
+});
 
 async function configureServer() {
   const configured = await sendBackgroundMessage({
@@ -266,6 +286,7 @@ authForm.addEventListener("submit", (event) => {
       authSwitch.hidden = true;
       authSignOut.hidden = false;
       setSettingsEnabled(true);
+      document.dispatchEvent(new Event("rts:scan-requested"));
     })
     .catch((error) => {
       authFeedback.textContent = error.message;
