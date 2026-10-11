@@ -45,13 +45,13 @@ async function loadSettings() {
   for (const input of settingInputs) {
     input.checked = response.settings[input.dataset.setting] !== false;
   }
+}
 
-  async function requireScrapingEnabled() {
-    const response = await chrome.runtime.sendMessage({ kind: "aid:get-settings" });
-    if (!response?.ok) throw new Error(response?.error || "Could not read feature settings");
-    if (response.settings.scrapingEnabled === false) {
-      throw new Error("Scraping is disabled in Feature settings.");
-    }
+async function requireScrapingEnabled() {
+  const response = await chrome.runtime.sendMessage({ kind: "aid:get-settings" });
+  if (!response?.ok) throw new Error(response?.error || "Could not read feature settings");
+  if (response.settings.scrapingEnabled === false) {
+    throw new Error("Scraping is disabled in Feature settings.");
   }
 }
 
@@ -87,6 +87,7 @@ function showResult(value) {
   resultThreshold.textContent = `${(value.threshold * 100).toFixed(1)}%`;
   resultModel.textContent = value.modelVersion;
   resultTime.textContent = `${value.processingTimeMs} ms`;
+  // Manual URL checks remain on the Manual tab; Scores shows listing images only.
 }
 
 resetToOpenState();
@@ -174,26 +175,6 @@ function createImageResult(image, response) {
   return card;
 }
 
-async function loadImageDataUrl(imageUrl) {
-  if (!imageUrl) return "";
-  const image = new Image();
-  image.decoding = "async";
-  image.crossOrigin = "anonymous";
-  image.referrerPolicy = "no-referrer";
-  await new Promise((resolve, reject) => {
-    image.onload = resolve;
-    image.onerror = reject;
-    image.src = imageUrl;
-  });
-  const canvas = document.createElement("canvas");
-  canvas.width = image.naturalWidth || image.width || 1;
-  canvas.height = image.naturalHeight || image.height || 1;
-  const context = canvas.getContext("2d");
-  if (!context) return "";
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.92);
-}
-
 async function getCurrentEtsyPage() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("Could not find the active tab.");
@@ -237,18 +218,25 @@ async function showResultOnPage(imageUrl, result) {
   });
 }
 
+let scanInProgress = false;
+
 async function scanCurrentPage() {
+  // Avoid running two expensive listing scans at the same time.
+  if (scanInProgress) return;
+  scanInProgress = true;
   result.hidden = true;
   pageResults.hidden = false;
   imageResults.replaceChildren();
   pageSummary.textContent = "Finding listing images...";
-  scanButton.disabled = true;
+  if (scanButton) scanButton.disabled = true;
+
   try {
     await requireScrapingEnabled();
     const listing = await getCurrentEtsyPage();
+    const images = Array.isArray(listing.images) ? listing.images.slice(0, 20) : [];
     pageSummary.textContent = listing.title
-      ? `${listing.title} · ${listing.images.length} image${listing.images.length === 1 ? "" : "s"}`
-      : `${listing.images.length} listing image${listing.images.length === 1 ? "" : "s"} found`;
+      ? `${listing.title} · ${images.length} image${images.length === 1 ? "" : "s"}`
+      : `${images.length} listing image${images.length === 1 ? "" : "s"} found`;
     const storedScore = listing.listingId
       ? await chrome.runtime.sendMessage({
         kind: "aid:get-listing-score",
@@ -258,34 +246,74 @@ async function scanCurrentPage() {
     if (storedScore?.ok && storedScore.available && storedScore.score?.overall !== null) {
       pageSummary.textContent += ` · Stored listing rating: ${(storedScore.score.overall * 100).toFixed(1)}%`;
     }
-    if (!listing.images.length) {
+    if (!images.length) {
       pageSummary.textContent += ". No suitable images were found.";
-      return;
+      throw new Error("No listing images found. Wait for the Etsy listing photos to load, then click Scan current listing again.");
     }
-    for (const image of listing.images) {
-      const imageData = await loadImageDataUrl(image.url).catch(() => "");
-      const response = await chrome.runtime.sendMessage({
-        kind: "aid:analyze",
-        imageUrl: image.url,
-        imageData: imageData || undefined,
-        meta: listing,
-      });
-      if (response?.ok) await showResultOnPage(image.url, response.result);
-      imageResults.appendChild(createImageResult(image, response?.ok
-        ? response
-        : { ok: false, error: response?.error || "Analysis failed" }));
+
+    // Show thumbnails right away rather than waiting for the model to finish.
+    const scoreItems = images.map((image) => ({
+      url: image.url,
+      alt: image.alt || "Etsy listing image",
+      result: null,
+      status: "Analyzing…",
+    }));
+    document.dispatchEvent(new CustomEvent("rts:analysis-start", {
+      detail: { title: listing.title || "Current Etsy listing", images: scoreItems }
+    }));
+
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      try {
+        // Do NOT convert to a huge data URL in the popup. The original extension
+        // sends the image URL to its offscreen ONNX analysis pipeline.
+        const response = await chrome.runtime.sendMessage({
+          kind: "aid:analyze",
+          imageUrl: image.url,
+          meta: listing,
+        });
+        if (!response?.ok) throw new Error(response?.error || "Analysis failed");
+        scoreItems[i] = { ...scoreItems[i], result: response.result, status: "complete" };
+        // Same badge mechanism used by the original scanner on Etsy pages.
+        try {
+          if (response?.ok) await showResultOnPage(image.url, response.result);
+        } catch (error) {
+          console.warn("Could not add on-page badge:", error);
+        }
+      } catch (error) {
+        scoreItems[i] = { ...scoreItems[i], status: error.message || "Analysis failed" };
+        console.error("Image analysis failed:", image.url, error);
+      }
+
+      const response = scoreItems[i].result
+        ? { ok: true, result: scoreItems[i].result }
+        : { ok: false, error: scoreItems[i].status };
+      imageResults.appendChild(createImageResult(image, response));
+      document.dispatchEvent(new CustomEvent("rts:analysis-progress", {
+        detail: { index: i, item: scoreItems[i], complete: i + 1, total: images.length }
+      }));
     }
-    status.textContent = "Etsy page scan complete.";
+
+    const successes = scoreItems.filter((item) => item.result).length;
+    status.textContent = `${successes} of ${images.length} images analyzed.`;
+    document.dispatchEvent(new CustomEvent("rts:analysis", {
+      detail: { type: "listing", title: listing.title || "Current Etsy listing", images: scoreItems }
+    }));
   } catch (error) {
     pageSummary.textContent = error.message;
-    status.textContent = "Etsy page scan failed.";
+    status.textContent = `Scan unavailable: ${error.message}`;
+    document.dispatchEvent(new CustomEvent("rts:scan-unavailable", {
+      detail: { message: error.message }
+    }));
+    console.error("Listing scan failed:", error);
   } finally {
-    scanButton.disabled = false;
+    scanInProgress = false;
+    if (scanButton) scanButton.disabled = false;
   }
 }
 
 scanButton.addEventListener("click", scanCurrentPage);
-if (showScrapedDataButton) showScrapedDataButton.addEventListener("click", showScrapedPostData);
+if (showScrapedDataButton) showScrapedDataButton.addEventListener("click", showScrapedPostData);1afd01b9c044f
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -294,11 +322,9 @@ form.addEventListener("submit", async (event) => {
   analyzeButton.disabled = true;
   try {
     const imageUrl = urlInput.value.trim();
-    const imageData = await loadImageDataUrl(imageUrl).catch(() => "");
     const response = await chrome.runtime.sendMessage({
       kind: "aid:analyze",
       imageUrl,
-      imageData: imageData || undefined,
     });
     if (!response?.ok) throw new Error(response?.error || "Inference failed");
     showResult(response.result);
@@ -311,3 +337,23 @@ form.addEventListener("submit", async (event) => {
 });
 
 export { createImageResult, getCurrentEtsyPage, scanCurrentPage, showScrapedPostData };
+
+// On popup launch, scan an Etsy listing without requiring authentication.
+// For other pages, the Scores tab displays guidance instead of running a scan.
+async function autoScanEtsyListing() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!/^https?:\/\/(?:[^/]+\.)?etsy\.com\/listing\/\d+(?:[/?#]|$)/i.test(tab?.url || "")) {
+      document.dispatchEvent(new CustomEvent("rts:scan-unavailable", {
+        detail: { message: "Open an Etsy listing to see its image ratings automatically. You can still analyze a pasted image URL in Manual." }
+      }));
+      return;
+    }
+    await scanCurrentPage();
+  } catch (error) {
+    document.dispatchEvent(new CustomEvent("rts:scan-unavailable", { detail: { message: error.message } }));
+  }
+}
+
+// Run after the other popup modules have attached their listeners.
+document.addEventListener("rts:scan-requested", autoScanEtsyListing);
