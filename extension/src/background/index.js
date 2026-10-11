@@ -461,11 +461,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!isSettingEnabled(settings, "serverUploadEnabled")) {
         throw new Error("server uploads are disabled in settings");
       }
-      return apiClient.submitListingScore(message.payload).then((response) => {
+      return apiClient.submitListingScore(message.payload).then(async (response) => {
         const payload = message.payload;
         const key = listingKey(payload.platform, payload.listingId);
         if (key) {
-          const score = payload.score || {};
           const cached = await getCachedListing(key);
           return cacheListing(key, {
             ...(cached || {}),
