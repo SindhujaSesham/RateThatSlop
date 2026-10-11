@@ -29,9 +29,7 @@ export function createApiClient({
   async function request(path, options = {}) {
     const method = options.method || "GET";
     const token = await getToken();
-    if (options.requireAuth !== false && !token) {
-      throw new Error("sign-in is required for server features");
-    }
+    if (!token) throw new Error("sign-in is required for server features");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -42,7 +40,7 @@ export function createApiClient({
           Accept: "application/json",
           "Content-Type": "application/json",
           ...(options.headers || {}),
-          ...(token ? { Authorization: "Bearer " + token } : {}),
+          Authorization: "Bearer " + token,
         },
       });
       let body;
@@ -80,15 +78,10 @@ export function createApiClient({
     getListingScore(platform, listingId) {
       return request(`/api/scores/${encodeURIComponent(platform)}/${encodeURIComponent(listingId)}`, {
         allowNotFound: true,
-        requireAuth: false,
       });
     },
     submitListingScore(payload) {
-      return request("/api/scores", {
-        method: "POST",
-        body: JSON.stringify(payload),
-        requireAuth: false,
-      });
+      return request("/api/scores", { method: "POST", body: JSON.stringify(payload) });
     },
     evaluateDescription(description, listingDetails = {}) {
       return request("/api/evaluate-description", {

@@ -7,9 +7,8 @@ AI-generated sewing-pattern images on Etsy and presenting a separate,
 explainable listing-risk rating. Keep the extension local-first: image inference runs in the browser and image
 bytes must never be uploaded by ordinary server lookups, score reads, score
 submissions, reports, or description evaluation. Server synchronization is
-authenticated and opt-in at the feature level, except for the temporary
-hackathon score path documented below. Image inference remains local by
-default.
+authenticated and opt-in at the feature level. Image inference remains local
+by default.
 
 ## Architecture
 
@@ -64,8 +63,7 @@ default.
   rating data.
 - Server-backed signals include trusted creators, Etsy user reviews, extension
   user reports, stored listing ratings, and per-image analysis scores. These
-  are account-gated features and must use authenticated API requests, except
-  for the temporary public score-sync path documented below.
+  are account-gated features and must use authenticated API requests.
 - A signed-in user may read shared listing data and contribute reports. An
   unsigned user may use local image inference but must not access any server
   feature or AI description evaluation.
@@ -288,48 +286,12 @@ default.
 - Preserve required licenses and attribution for Sieve code, ONNX Runtime,
   model weights, and copied assets.
 
-## Temporary Hackathon Fixes
-
-These are deliberate demo-only compromises to keep the end-to-end
-score-saving path working during the hackathon. Do not treat them as the
-production security or privacy design.
-
-- Score reads and score submissions under `/api/scores` are temporarily
-  available without a signed-in extension session. The extension may send
-  listing metadata, normalized scores, image hashes, and optional image URLs
-  without an access token.
-- The Supabase migration
-  `backend/database/migrations/001_hackathon_public_score_access.sql`
-  temporarily grants public `anon` and `authenticated` read/write access to
-  `patterns`, `score_snapshots`, and `image_analyses`, with permissive RLS
-  policies. Keep the migration idempotent and apply it explicitly to the
-  deployed project; changing `backend/database/schema.sql` alone does not
-  update Supabase.
-- This temporary path still must never upload image bytes, full image data
-  URLs, passwords, access tokens, service-role keys, or Gemini secrets.
-  Validate score ranges, cap submissions at 100 images, and store hashes
-  rather than image data.
-- `serverUploadEnabled` still gates score writes at the extension operation
-  boundary. A disabled setting must skip or reject the operation explicitly;
-  it must not send the request and ignore the result.
-- Description evaluation, reports, reviews, diagnostics, account operations,
-  and other non-score server features remain authenticated unless the user
-  explicitly requests another hackathon-only change.
-- Before a public production release, replace this temporary design with
-  authenticated score reads and writes, restrictive RLS policies scoped to
-  the requesting user or approved shared-data model, abuse/rate limiting,
-  server-side authorization and ownership checks, migration verification,
-  audit logging, and tests for unauthorized reads/writes. Remove the public
-  grants and policies only after the authenticated client flow is verified.
-
 ## Server Integration
 
-- `extension/src/background/api-client.js` owns requests to the RateThatSlop
-  server and must centralize authorization where required, response
-  validation, timeout handling, and explicit error propagation. During the
-  hackathon, score reads/submissions are the documented unauthenticated
-  exception; description evaluation, reports, reviews, and diagnostics remain
-  authenticated.
+- `extension/src/background/api-client.js` owns authenticated requests to the
+  RateThatSlop server and must centralize authorization, response validation,
+  timeout handling, and explicit error propagation. Its current operations are
+  listing-score reads, listing-score submissions, and description evaluation.
 - `extension/src/background/auth.js` owns the stored access-token session and
   expiry handling. Never log credentials or access tokens. Do not make local
   image inference depend on server availability.
@@ -346,18 +308,6 @@ production security or privacy design.
   execution. `backend/.env` is ignored and must never be committed or copied
   into the extension; only the Supabase URL and publishable key may be used
   to generate the extension's public build configuration.
-- Backend database access must use the Supabase server secret/service-role
-  credential, configured only as `SUPABASE_SERVICE_ROLE_KEY` or the supported
-  legacy `SUPABASE_KEY`; never use a publishable/anon key for server writes.
-  Supabase secret keys may use a non-JWT format, so do not treat failure to
-  decode a key locally as proof that it is invalid. Verify it with a
-  read-only table check and a controlled write test for the applicable route
-  instead.
-- Keep the user access token and backend database credential distinct. A
-  successful authenticated route such as description evaluation proves the
-  user token is accepted, but does not prove that the backend service
-  credential can write database rows. Conversely, a database-read failure
-  does not justify changing the extension's user session.
 - `extension/src/background/listing-cache.js` owns local caching of server
   listing records and ratings. Cache keys use `etsy:<numeric-listing-id>`,
   never an image URL or unnormalized page URL. Image-byte hashes identify
@@ -384,17 +334,16 @@ production security or privacy design.
   `etsyReviewsEnabled` excludes Etsy review text, ratings, and customer-review
   photos from scraping. Keep local image inference independent of these
   settings.
-- Settings must enforce operation boundaries. During the hackathon,
-  `serverUploadEnabled` may permit unauthenticated score writes, while other
-  server-related toggles must still require a valid signed-in session.
-  Disabling a toggle must prevent the corresponding request rather than
-  sending it and ignoring the response. Return explicit errors or skipped
-  statuses for disabled operations.
-- Backend server routes are mounted in `backend/server.js`: score reads and
-  writes are under `/api/scores` and are temporarily unauthenticated for the
-  hackathon; description evaluation is under `/api/evaluate-description`
-  (with the `/api/descriptions` route retained as a compatible route group),
-  and reports remain under `/api/reports`.
+- Settings must not bypass authentication. Enabling a server-related toggle
+  must still require a valid signed-in session, and disabling a toggle must
+  prevent the corresponding request rather than sending it and ignoring the
+  response. Return explicit errors or skipped statuses for disabled
+  operations.
+- Backend server routes are mounted in `backend/server.js`: authenticated
+  score reads and writes are under `/api/scores`, description evaluation is
+  under `/api/evaluate-description` (with the `/api/descriptions` route
+  retained as a compatible route group), and reports remain under
+  `/api/reports`.
   Description evaluation remains authenticated and returns the structured AI
   assessment for the popup, including the evaluator's 0-100 value, a
   normalized `descriptionScore` in the 0-1 interval, and a cleaned
@@ -413,18 +362,6 @@ production security or privacy design.
   provide and apply an explicit Supabase SQL migration such as
   `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, then verify the live columns
   before diagnosing missing data as a client-cache issue.
-- Before diagnosing score/report writes, run the backend locally with the
-  ignored `backend/.env` and perform read-only checks against `/api/health`,
-  `/api/test-db`, and each application table. Then perform one controlled
-  score write using non-sensitive test metadata when validating the hackathon
-  path. Do not print credentials. A `200` health response only proves the HTTP
-  process is alive; a `500` from a write route requires the server's
-  underlying Supabase error from deployment logs.
-- Preserve the distinction between expected score cache misses (`404 Pattern
-  not found`), invalid user authentication (`401`), database/write failures
-  (`500`), and hosting/database timeouts (`504`, often non-JSON HTML). Do not
-  log expected cache misses as failures or replace actionable upstream errors
-  with a generic success-shaped response.
 - Keep server feature tests in `extension/test/api-client.test.js`,
   `extension/test/auth.test.js`, and
   `extension/test/listing-cache.test.js`.

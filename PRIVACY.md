@@ -21,10 +21,8 @@ in that record.
 The popup provides separate opt-in switches for scraping, uploading scores,
 reading shared server information, AI description evaluation, user reviews,
 and Etsy reviews. They default to enabled for compatibility, but disabled
-features do not run. Reviews and description evaluation remain authenticated and unavailable to
-signed-out users. Listing score reads and writes are available without a
-signed-in extension session for the hackathon demo and contain only listing
-metadata, scores, hashes, and optional image URLs.
+features do not run. Server reads, writes, reviews, and description evaluation
+remain authenticated and unavailable to signed-out users.
 
 Completed local inference results are cached in Chrome extension storage as
 compact result metadata keyed by a SHA-256 hash of the fetched image bytes.
@@ -51,17 +49,13 @@ still use local image detection. Other listing-score behavior is unchanged:
 fresh server results are used when available, with local inference for missing
 or stale image results.
 
-The extension sends only listing metadata, scores, and image hashes/optional
-URLs for explicit score submission; it does not upload image bytes. Description
-text is a separate authenticated feature governed by the popup preference.
-Server-provided results are marked separately from fresh local inference.
-Retention, account deletion behavior, report moderation, and any future remote
-image-processing feature must be documented before release.
-
-For the hackathon deployment, score snapshots and their compact image metadata
-are publicly readable and writable through the score API. This is a deliberate
-demo tradeoff and must be replaced with authenticated policies before a
-production release.
+Server synchronization is authenticated. The extension sends only listing
+metadata, scores, and image hashes/optional URLs for explicit score
+submission; it does not upload image bytes. Description text is a separate
+authenticated feature governed by the popup preference. Server-provided
+results are marked separately from fresh local inference. Retention, account
+deletion behavior, report moderation, and any future remote image-processing
+feature must be documented before release.
 
 Results are automated estimates of AI-image likelihood. They are not proof
 that an image or seller is deceptive, fraudulent, or low quality. Etsy DOM

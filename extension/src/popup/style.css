@@ -46,11 +46,6 @@ body {
   background: var(--cream-panel);
 }
 
-html.sidebar-collapsed,
-body.sidebar-collapsed {
-  width: 504px;
-}
-
 body {
   color: var(--ink);
   font-family: var(--font-body);
@@ -117,15 +112,9 @@ input {
   background: transparent;
 }
 
-.sidebar-blob-bottom,
-.sidebar-blob-ring-bottom {
-  top: auto;
-  bottom: -110px;
-}
-
 .sidebar-sparkle {
   position: absolute;
-  top: 38px;
+  top: 22px;
   right: 18px;
   transform: rotate(12deg);
 }
@@ -188,42 +177,6 @@ input {
 
 .pill-yellow {
   background: var(--yellow);
-}
-
-.slogan-callout {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: 100%;
-  margin: 0;
-  padding: 10px 9px;
-  border: 1.6px solid var(--ink);
-  border-radius: 999px;
-  background: var(--yellow);
-  box-shadow: 4px 4px 0 0 var(--ink);
-  font-family: var(--font-body);
-  font-size: 17px;
-  font-weight: 800;
-  line-height: 1.2;
-  color: var(--ink);
-  text-align: center;
-}
-
-.slogan-callout > img {
-  display: block;
-  flex: 0 0 18px;
-}
-
-.slogan-subtitle {
-  margin: 14px 0 0;
-  font-family: var(--font-display);
-  font-size: 29px;
-  font-weight: 700;
-  letter-spacing: -0.4px;
-  line-height: 1.05;
-  color: var(--cream);
-  text-align: left;
 }
 
 .pill-orange {
@@ -346,15 +299,15 @@ input {
 .privacy-shield {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
   flex-shrink: 0;
 }
 
 .privacy-shield img {
-  display: block;
-  width: 48px;
-  height: 48px;
+  transform: scale(0.22);
+  transform-origin: center;
 }
 
 .privacy-callout p {
@@ -769,10 +722,7 @@ input {
 [hidden] { display: none !important; }
 
 .app-card { grid-template-columns: 260px minmax(0, 1fr); }
-.app-card.sidebar-collapsed {
-  width: 504px;
-  grid-template-columns: 44px 460px;
-}
+.app-card.sidebar-collapsed { grid-template-columns: 44px minmax(0, 1fr); }
 .app-card.sidebar-collapsed .sidebar { padding: 0; }
 
 .sidebar { position: relative; }
@@ -827,7 +777,6 @@ input {
 .feature-card label { display: block; font-weight: 700; font-size: 13px; margin: 10px 0 4px; }
 .feature-card input { width: 100%; padding: 10px; border: 2px solid var(--ink); border-radius: 8px; background: white; }
 .small-action { padding: 9px 12px; border: 2px solid var(--ink); border-radius: 8px; background: var(--yellow); font-weight: 700; cursor: pointer; }
-#auth-form #auth-submit { display: block; margin-top: 12px; }
 .text-action { border: 0; background: transparent; text-decoration: underline; color: var(--ink); cursor: pointer; padding: 6px 0; }
 .score-images, #image-results { display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; padding: 5px 2px 12px; max-height: none; scroll-snap-type: x proximity; }
 .score-images::-webkit-scrollbar { height: 8px; }

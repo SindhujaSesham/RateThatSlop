@@ -131,29 +131,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.score_snapshots TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.image_analyses TO service_role;
 GRANT USAGE ON SCHEMA public TO service_role;
 
--- Score reads and writes are intentionally public for the hackathon demo.
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.patterns TO anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.score_snapshots TO anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.image_analyses TO anon, authenticated;
-
-DROP POLICY IF EXISTS public_score_pattern_access ON public.patterns;
-CREATE POLICY public_score_pattern_access ON public.patterns
-    FOR ALL TO anon, authenticated
-    USING (true)
-    WITH CHECK (true);
-
-DROP POLICY IF EXISTS public_score_snapshot_access ON public.score_snapshots;
-CREATE POLICY public_score_snapshot_access ON public.score_snapshots
-    FOR ALL TO anon, authenticated
-    USING (true)
-    WITH CHECK (true);
-
-DROP POLICY IF EXISTS public_score_image_access ON public.image_analyses;
-CREATE POLICY public_score_image_access ON public.image_analyses
-    FOR ALL TO anon, authenticated
-    USING (true)
-    WITH CHECK (true);
-
 -- Auth signup does not automatically create a profile row. Reports depend on
 -- that row, so create it transactionally whenever Supabase creates a user.
 CREATE OR REPLACE FUNCTION public.handle_new_user()

@@ -134,7 +134,6 @@ async function cachedResultsFor(imageUrls) {
 async function analyze(message) {
   const imageUrl = typeof message.imageUrl === "string" ? message.imageUrl : "";
   const imageData = typeof message.imageData === "string" ? message.imageData : "";
-  const force = message.force === true;
   if (!imageUrl && !imageData) throw new Error("imageUrl or imageData is required");
 
   const imageHash = typeof message.imageHash === "string"
@@ -142,12 +141,10 @@ async function analyze(message) {
     : await hashImageInputs(imageUrl, imageData);
   const key = cacheKeyFor(imageHash);
   const manifest = validateManifest(await modelManifest());
-  if (!force) {
-    const serverResult = await serverImageResult(message, imageHash, manifest);
-    if (serverResult) return serverResult;
-  }
+  const serverResult = await serverImageResult(message, imageHash, manifest);
+  if (serverResult) return serverResult;
   const cached = await cacheGet(key);
-  if (cached && !force) return cached;
+  if (cached) return cached;
   if (inflight.has(key)) return inflight.get(key);
 
   const request = (async () => {
@@ -320,7 +317,7 @@ async function syncListingResult(message) {
     serverSynced: false,
   };
   if (key) await cacheListing(key, localRecord);
-  if (!isSettingEnabled(settings, "serverUploadEnabled")) {
+  if (!await getAccessToken() || !isSettingEnabled(settings, "serverUploadEnabled")) {
     return { ok: true, cached: true, score: localRecord };
   }
   const response = await apiClient.submitListingScore({
@@ -478,6 +475,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getSettings().then(async (settings) => {
       if (!isSettingEnabled(settings, "serverUploadEnabled")) {
         throw new Error("server uploads are disabled in settings");
+      }
+      if (!await getAccessToken()) {
+        return { skipped: "not-signed-in" };
       }
       return apiClient.submitListingScore(message.payload).then(async (response) => {
         const payload = message.payload;

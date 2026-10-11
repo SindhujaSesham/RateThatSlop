@@ -17,11 +17,11 @@ const context = {
 vm.runInNewContext(`${source}
 globalThis.__testApi = {
   collectPageData, getListingImages, getAnalyzableImages, isEtsyPage, isListingPage, scrapePostPage,
-  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages, sendRuntimeMessage,
+  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages,
 };`, context);
 const {
   collectPageData, getListingImages, getAnalyzableImages, isEtsyPage, isListingPage, scrapePostPage,
-  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages, sendRuntimeMessage,
+  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages,
 } = context.__testApi;
 
 function makeImage({ url, width = 500, height = 500, alt = "" }) {
@@ -43,16 +43,6 @@ function makeDocument(images, selectors = new Map()) {
     querySelectorAll: (selector) => selector.includes("img") ? images : [],
   };
 }
-
-test("converts a synchronously invalidated runtime into a rejected message", async () => {
-  context.chrome.runtime.sendMessage = () => {
-    throw new Error("Extension context invalidated.");
-  };
-  await assert.rejects(
-    sendRuntimeMessage({ kind: "aid:get-settings" }),
-    /Extension context invalidated/,
-  );
-});
 
 test("recognizes Etsy listing pages but rejects lookalike hosts", () => {
   assert.equal(isEtsyPage({ hostname: "www.etsy.com" }), true);
@@ -214,9 +204,6 @@ test("splits listing identity, product information, and review/image scraping", 
   const review = {
     textContent: "Lovely pattern",
     getAttribute: (name) => name === "data-review-id" ? "r1" : null,
-    querySelector: (selector) => selector.includes("review-text-toggle-wrapper")
-      ? { textContent: "Lovely pattern" } : null,
-    querySelectorAll: () => [],
   };
   const image = makeImage({ url: "https://i.etsystatic.com/pattern.jpg" });
   const selectors = new Map([
@@ -229,7 +216,7 @@ test("splits listing identity, product information, and review/image scraping", 
     querySelectorAll: (selector) => {
       if (selector.includes("listing-page-image-carousel-component") ||
           selector.includes("main-product-image")) return [image];
-      if (selector === "[data-review-region]") return [review];
+      if (selector.includes("review")) return [review];
       if (selector.includes("description")) return [description];
       return [];
     },
