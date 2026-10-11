@@ -110,6 +110,54 @@ test("scopes listing images and separates customer review photos", () => {
   ]);
 });
 
+test("scrapes every Etsy review card and its customer photo thumbnail", () => {
+  const firstImage = makeImage({
+    url: "https://i.etsystatic.com/iap/review-one.jpg",
+    width: 60,
+    height: 60,
+    alt: "First finished garment",
+  });
+  const secondImage = makeImage({
+    url: "https://i.etsystatic.com/iap/review-two.jpg",
+    width: 60,
+    height: 60,
+    alt: "Second finished garment",
+  });
+  const makeReviewCard = (text, rating, image) => ({
+    querySelector: (selector) => selector === ".wt-text-body [data-review-text-toggle-wrapper] p"
+      ? { textContent: text }
+      : selector === 'input[name="rating"]'
+        ? { value: String(rating) }
+        : null,
+    querySelectorAll: (selector) => selector === "button.appreciation-photo img" && image
+      ? [image]
+      : [],
+  });
+  const doc = {
+    querySelectorAll: (selector) => {
+      if (selector === "[data-review-region]") {
+        return [
+          makeReviewCard("Step by step instructions were easy to follow.", 4, firstImage),
+          makeReviewCard("Instructions were clear and the finished fit was great.", 5, secondImage),
+        ];
+      }
+      if (selector.includes("listing-page-image-carousel-component")) return [];
+      return [];
+    },
+  };
+
+  const scraped = scrapeReviewsAndImages(doc);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(scraped.reviews)), [
+    { text: "Step by step instructions were easy to follow.", rating: "4" },
+    { text: "Instructions were clear and the finished fit was great.", rating: "5" },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(scraped.reviewImages)), [
+    { url: firstImage.src, alt: firstImage.alt },
+    { url: secondImage.src, alt: secondImage.alt },
+  ]);
+});
+
 test("does not treat recommendation cards as listing images", () => {
   const recommendationImage = makeImage({
     url: "https://i.etsystatic.com/recommendation.jpg",

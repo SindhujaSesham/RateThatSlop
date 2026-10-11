@@ -156,6 +156,8 @@ const authSignOut = $("#auth-sign-out");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
 const settingsNote = $("#settings-note");
+// TEMP: Use http://localhost:3000 here when testing the local backend.
+const apiServerUrl = "https://rate-my-slop-xzld5.ondigitalocean.app";
 const diagnosticOutput = $("#diagnostic-output");
 const deployedServerUrl = "https://rate-my-slop-xzld5.ondigitalocean.app";
 
@@ -216,7 +218,7 @@ $("#clear-cache").addEventListener("click", async () => {
 async function configureServer() {
   const configured = await sendBackgroundMessage({
     kind: "aid:configure-server",
-    serverBaseUrl: deployedServerUrl,
+    serverBaseUrl: apiServerUrl,
   });
   if (!configured?.ok) throw new Error(configured?.error || "Could not configure the API server.");
   const setup = await sendBackgroundMessage({ kind: "aid:check-sign-in-setup" });
