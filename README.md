@@ -19,6 +19,12 @@ npm test
 npm run build
 ```
 
+The extension build reads only `SUPABASE_URL` and
+`SUPABASE_PUBLISHABLE_KEY` from `backend/.env` and writes them to a
+gitignored generated module. `SUPABASE_KEY` is never read by the extension
+build. The popup asks only for the API server URL; for a hosted HTTPS API,
+Chrome requests permission for that origin when you sign in.
+
 The tests cover Etsy host validation, image deduplication/filtering, and
 listing metadata extraction. The build vendors the local ONNX Runtime files
 needed by the offscreen inference document.
