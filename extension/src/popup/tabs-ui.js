@@ -8,6 +8,7 @@ const scoresData = $("#scores-data");
 const scoresImages = $("#scores-images");
 const scoresHeading = $("#scores-heading");
 const scoresSummary = $("#scores-summary");
+const descriptionAssessment = $("#scores-description-assessment");
 
 const retryButton = $("#scores-retry");
 retryButton.addEventListener("click", () => {
@@ -65,8 +66,39 @@ document.addEventListener("rts:analysis-start", (event) => {
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
   scoresHeading.textContent = event.detail.title;
+  renderDescriptionAssessment(event.detail.descriptionAssessment);
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
   updateScoreSummary();
+});
+
+function renderDescriptionAssessment(assessment) {
+  if (!descriptionAssessment || !assessment) return;
+  if (assessment.status === "pending") {
+    descriptionAssessment.textContent = assessment.message;
+    return;
+  }
+  if (assessment.status === "error") {
+    descriptionAssessment.textContent = `Description review failed: ${assessment.message}`;
+    return;
+  }
+  if (assessment.status !== "available") {
+    descriptionAssessment.textContent = assessment.message || "No listing description was available to review.";
+    return;
+  }
+  const result = assessment.result || {};
+  const score = Number(result.ai_likeness_score);
+  const classification = typeof result.classification === "string"
+    ? result.classification
+    : "assessment complete";
+  const rationale = typeof result.overall_rationale === "string"
+    ? ` ${result.overall_rationale}`
+    : "";
+  descriptionAssessment.textContent =
+    `AI-writing likelihood: ${score.toFixed(0)}/100 (${classification}).${rationale}`;
+}
+
+document.addEventListener("rts:description-assessment", (event) => {
+  renderDescriptionAssessment(event.detail);
 });
 
 document.addEventListener("rts:analysis-progress", (event) => {

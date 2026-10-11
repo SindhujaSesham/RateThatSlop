@@ -38,7 +38,12 @@ needed by the offscreen inference document.
    page loads.
 3. Open the RateThatSlop popup and choose **Scan current Etsy page**.
 4. The popup lists each suitable product image it found and its local AI
-   likelihood. Direct image URLs can still be analyzed individually.
+   likelihood. When a description is available, the Scores view shows that
+   the description was submitted while the AI review is in progress, then
+   shows the returned AI-writing likelihood and classification. If the
+   server or model is unavailable, the view reports that failure instead of
+   displaying a misleading score. Direct image URLs can still be analyzed
+   individually.
 
 The scraper deduplicates image URLs, ignores common avatars/icons/logos, caps
 scans at 100 images, and extracts title, seller, price, and page URL when the
