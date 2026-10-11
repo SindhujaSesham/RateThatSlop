@@ -4,6 +4,7 @@ const IGNORED_IMAGE_RE = /(avatar|icon|logo|sprite|badge|favicon|profile|shop[_-
 const ETSY_IMAGE_HOST_RE = /(^|\.)etsystatic\.com$/i;
 const analyzedResults = new Map();
 const inFlightImages = new Set();
+const evaluatedReviewListings = new Set();
 let pageScanPromise = null;
 
 function isEtsyPage(location = window.location) {
@@ -54,6 +55,22 @@ function collectImages(imageElements) {
     if (!isListingImage(img)) continue;
     const url = getImageUrl(img);
     if (seen.has(url)) continue;
+    seen.add(url);
+    images.push({ url, alt: img.alt?.trim() || "" });
+    if (images.length >= MAX_IMAGES) break;
+  }
+  return images;
+}
+
+function collectReviewImages(imageElements) {
+  const seen = new Set();
+  const images = [];
+  for (const img of imageElements) {
+    const url = getImageUrl(img);
+    const hostname = url.match(/^https?:\/\/([^/?#]+)/i)?.[1] || "";
+    if (!ETSY_IMAGE_HOST_RE.test(hostname) || IGNORED_IMAGE_RE.test(url) || seen.has(url)) {
+      continue;
+    }
     seen.add(url);
     images.push({ url, alt: img.alt?.trim() || "" });
     if (images.length >= MAX_IMAGES) break;
@@ -161,37 +178,86 @@ function scrapeProductInformation(doc = document) {
   };
 }
 
-function scrapeReviewsAndImages(doc = document) {
-  const reviews = [];
-  const reviewElements = doc.querySelectorAll(
-    '[data-review-id], [data-review-text], [data-testid="review"]',
-  );
-  for (const element of reviewElements) {
-    const text = element.textContent?.replace(/\s+/g, " ").trim();
-    if (!text || text.length < 2) continue;
-    const ratingText = element.getAttribute("data-rating") ||
-      element.querySelector?.('[aria-label*="star" i]')?.getAttribute("aria-label") || "";
-    reviews.push({ text: text.slice(0, 2000), rating: ratingText });
-    if (reviews.length >= 100) break;
+function scrapeReviewsAndImages(doc = document, includeEtsyReviews = true) {
+  if (!includeEtsyReviews) {
+    return { ratings: "", reviews: [], images: getListingImages(doc), reviewImages: [] };
   }
+  const reviews = [];
+  const reviewCards = doc.querySelectorAll("[data-review-region]");
+  const reviewImages = [];
+  if (reviewCards.length) {
+    for (const card of reviewCards) {
+      const textElement = card.querySelector?.(
+        ".wt-text-body [data-review-text-toggle-wrapper] p",
+      );
+      const text = textElement?.textContent?.replace(/\s+/g, " ").trim();
+      const ratingInput = card.querySelector?.('input[name="rating"]');
+      const ratingText = ratingInput?.value || ratingInput?.getAttribute?.("value") ||
+        card.getAttribute?.("data-rating") || "";
+      if (text && text.length >= 2) {
+        reviews.push({ text: text.slice(0, 2000), rating: ratingText });
+      }
+      reviewImages.push(...(card.querySelectorAll?.("button.appreciation-photo img") || []));
+      if (reviews.length >= 100) break;
+    }
+  } else {
+    const reviewElements = doc.querySelectorAll(
+      '[data-review-id], [data-review-text], [data-testid="review"]',
+    );
+    for (const element of reviewElements) {
+      const text = element.textContent?.replace(/\s+/g, " ").trim();
+      if (!text || text.length < 2) continue;
+      const ratingText = element.getAttribute("data-rating") ||
+        element.querySelector?.('[aria-label*="star" i]')?.getAttribute("aria-label") || "";
+      reviews.push({ text: text.slice(0, 2000), rating: ratingText });
+      if (reviews.length >= 100) break;
+    }
+    reviewImages.push(...doc.querySelectorAll(
+      '[data-location="customer-photo-section"] img',
+    ));
+  }
+  const uniqueReviews = reviews.filter((review, index) =>
+    reviews.findIndex((candidate) =>
+      candidate.text === review.text && candidate.rating === review.rating,
+    ) === index,
+  );
+  const collectedReviewImages = collectReviewImages(reviewImages);
   return {
     ratings: getAllText(doc, [".reviews-header-ratings"], 2000),
-    reviews,
+    reviews: uniqueReviews,
     images: getListingImages(doc),
-    reviewImages: collectImages(doc.querySelectorAll(
-      '[data-location="customer-photo-section"] img',
-    )),
+    reviewImages: collectedReviewImages,
   };
 }
 
-function scrapePostPage(doc = document, location = window.location) {
+function scrapePostPage(doc = document, location = window.location, options = {}) {
   if (!isListingPage(location)) return { ok: false, error: "This is not an Etsy listing page." };
   return {
     ok: true,
     identity: scrapePostIdentity(doc, location),
     productInformation: scrapeProductInformation(doc),
-    reviewsAndImages: scrapeReviewsAndImages(doc),
+    reviewsAndImages: scrapeReviewsAndImages(doc, options.includeEtsyReviews !== false),
   };
+}
+
+function requestReviewEvaluation(listingId, reviewsAndImages) {
+  if (!listingId || evaluatedReviewListings.has(listingId) ||
+      (!reviewsAndImages?.reviews?.length && !reviewsAndImages?.reviewImages?.length)) {
+    return;
+  }
+  evaluatedReviewListings.add(listingId);
+  chrome.runtime.sendMessage({
+    kind: "aid:evaluate-reviews",
+    listingId,
+    reviewsAndImages,
+  }).then((response) => {
+    if (!response?.ok) {
+      console.warn("RateThatSlop could not evaluate Etsy reviews:", response?.error);
+      return;
+    }
+  }).catch((error) => {
+    console.warn("RateThatSlop could not evaluate Etsy reviews:", error);
+  });
 }
 
 function setImageBadge(img, result) {
@@ -199,11 +265,15 @@ function setImageBadge(img, result) {
   if (!host) return;
   host.querySelector(".ratethatslop-image-badge")?.remove();
   if (getComputedStyle(host).position === "static") host.style.position = "relative";
+  const hostRect = host.getBoundingClientRect();
+  const imageRect = img.getBoundingClientRect();
+  const left = Math.max(8, imageRect.left - hostRect.left + 8);
+  const bottom = Math.max(8, hostRect.bottom - imageRect.bottom + 8);
   const badge = document.createElement("span");
   badge.className = "ratethatslop-image-badge";
   badge.textContent = result?.label === "likely-ai" ? "Likely AI" : "Likely Real";
   badge.style.cssText = [
-    "position:absolute", "top:8px", "left:8px", "z-index:2", "padding:4px 7px",
+    "position:absolute", `bottom:${bottom}px`, `left:${left}px`, "z-index:2", "padding:4px 7px",
     "border-radius:999px", "font:600 11px system-ui,sans-serif", "color:#fff",
     `background:${result?.label === "likely-ai" ? "#b42318" : "#287d3c"}`,
   ].join(";");
@@ -290,8 +360,12 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       return false;
     }
     if (message?.kind === "aid:scrape-post") {
-      sendResponse(scrapePostPage());
-      return false;
+      chrome.runtime.sendMessage({ kind: "aid:get-settings" }).then((settingsResponse) => {
+        sendResponse(scrapePostPage(document, window.location, {
+          includeEtsyReviews: settingsResponse?.settings?.etsyReviewsEnabled !== false,
+        }));
+      }).catch(() => sendResponse(scrapePostPage()));
+      return true;
     }
     return false;
   });
@@ -299,7 +373,9 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   const scan = () => {
-    const data = collectPageData();
+    chrome.runtime.sendMessage({ kind: "aid:get-settings" }).then((settingsResponse) => {
+      if (settingsResponse?.settings?.scrapingEnabled === false) return;
+      const data = collectPageData();
     if (data.ok && data.listing.analyzableImages.length) {
       analyzePageImages({
         ...data,
@@ -310,9 +386,15 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
       });
     }
     if (isListingPage() && getListingId(document, window.location)) {
-      chrome.runtime.sendMessage({ kind: "aid:scrape-post", post: scrapePostPage() })
-        .catch(() => {});
-    }
+      const post = scrapePostPage(document, window.location, {
+        includeEtsyReviews: settingsResponse?.settings?.etsyReviewsEnabled !== false,
+      });
+      chrome.runtime.sendMessage({ kind: "aid:scrape-post", post }).catch(() => {});
+      if (settingsResponse?.settings?.etsyReviewsEnabled !== false) {
+        requestReviewEvaluation(post.identity.listingId, post.reviewsAndImages);
+      }
+      }
+    }).catch(() => {});
   };
   let scanTimer = 0;
   const scheduleScan = () => {

@@ -11,7 +11,13 @@
   ],
   "host_permissions": [
     "*://*.etsy.com/*",
-    "*://*.etsystatic.com/*"
+    "*://*.etsystatic.com/*",
+    "https://*.supabase.co/*",
+    "http://localhost:3000/*",
+    "https://rate-my-slop-xzld5.ondigitalocean.app/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
   ],
   "background": {
     "service_worker": "src/background/index.js",
@@ -38,6 +44,6 @@
     "default_title": "RateThatSlop"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.etsystatic.com https://*.supabase.co https: http://localhost:3000 http://127.0.0.1:3000"
   }
 }

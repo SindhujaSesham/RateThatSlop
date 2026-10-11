@@ -1,15 +1,21 @@
 // Start the server
 
 const express = require("express");
-const supabase = require("./config/supabase");
+const cors = require("cors");
 const patternRoutes = require("./routes/patterns");
-const requireAuth = require("./middleware/auth");
+const reportRoutes = require("./routes/reports");
+const scoreRoutes = require("./routes/scores");
+const healthRoutes = require("./routes/health");
+const userRoutes = require("./routes/users");
+const descriptionRoutes = require("./routes/descriptions");
+const reviewRoutes = require("./routes/reviews");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Allows Express to read JSON sent in requests
 app.use(express.json());
+app.use(cors());
 
 // Basic Check
 /*
@@ -51,6 +57,10 @@ app.get("/api/me", requireAuth, (req, res) => {
 
 // Pattern-related routes
 app.use("/api/patterns", patternRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/scores", scoreRoutes);
+app.use("/api/descriptions", descriptionRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 
 // ============================================

@@ -1,44 +1,43 @@
 const form = document.querySelector("#analyze-form");
 const urlInput = document.querySelector("#image-url");
-const status = document.querySelector("#status");
-const result = document.querySelector("#result");
-const resultLabel = document.querySelector("#result-label");
-const resultScore = document.querySelector("#result-score");
-const resultThreshold = document.querySelector("#result-threshold");
-const resultModel = document.querySelector("#result-model");
-const resultTime = document.querySelector("#result-time");
+const manualFeedback = document.querySelector("#manual-feedback");
+const manualResult = document.querySelector("#manual-result");
+const manualResultLabel = document.querySelector("#manual-result-label");
+const manualResultSummary = document.querySelector("#manual-result-summary");
+const manualResultMeta = document.querySelector("#manual-result-meta");
 const analyzeButton = form.querySelector("button");
-const scanButton = document.querySelector("#scan-page");
-const pageResults = document.querySelector("#page-results");
-const pageSummary = document.querySelector("#page-summary");
-const imageResults = document.querySelector("#image-results");
-const scrapedData = document.querySelector("#scraped-data");
-const scrapedDataSummary = document.querySelector("#scraped-data-summary");
-const scrapedDataOutput = document.querySelector("#scraped-data-output");
-const showScrapedDataButton = document.querySelector("#show-scraped-data");
+const settingInputs = [...document.querySelectorAll("[data-setting]")];
 
-function showResult(value) {
-  result.hidden = false;
-  resultLabel.textContent = value.label === "likely-ai" ? "Likely AI-generated" : "Likely real";
-  resultScore.textContent = `AI likelihood: ${(value.score * 100).toFixed(1)}%`;
-  resultThreshold.textContent = `${(value.threshold * 100).toFixed(1)}%`;
-  resultModel.textContent = value.modelVersion;
-  resultTime.textContent = `${value.processingTimeMs} ms`;
+async function loadSettings() {
+  const response = await chrome.runtime.sendMessage({ kind: "aid:get-settings" });
+  if (!response?.ok) throw new Error(response?.error || "Could not load settings");
+  for (const input of settingInputs) {
+    input.checked = response.settings[input.dataset.setting] !== false;
+  }
 }
 
-function createImageResult(image, response) {
-  const card = document.createElement("article");
-  card.className = "image-result";
-  const thumbnail = document.createElement("img");
-  thumbnail.src = image.url;
-  thumbnail.alt = image.alt || "Etsy listing image";
-  const text = document.createElement("span");
-  text.textContent = response.ok
-    ? `${response.result.label === "likely-ai" ? "Likely AI" : "Low AI signal"} · ${(response.result.score * 100).toFixed(1)}%`
-    : `Unavailable: ${response.error}`;
-  card.append(thumbnail, text);
-  return card;
+async function requireScrapingEnabled() {
+  const response = await chrome.runtime.sendMessage({ kind: "aid:get-settings" });
+  if (!response?.ok) throw new Error(response?.error || "Could not read feature settings");
+  if (response.settings.scrapingEnabled === false) {
+    throw new Error("Scraping is disabled in Feature settings.");
+  }
 }
+
+async function saveSetting(input) {
+  const response = await chrome.runtime.sendMessage({
+    kind: "aid:set-settings",
+    settings: { [input.dataset.setting]: input.checked },
+  });
+  if (!response?.ok) {
+    input.checked = !input.checked;
+    throw new Error(response?.error || "Could not save setting");
+  }
+}
+
+loadSettings().catch((error) => {
+  manualFeedback.textContent = `Settings unavailable: ${error.message}`;
+});
 
 async function getCurrentEtsyPage() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -46,31 +45,6 @@ async function getCurrentEtsyPage() {
   const page = await chrome.tabs.sendMessage(tab.id, { kind: "aid:collect-page" });
   if (!page?.ok) throw new Error(page?.error || "Could not read this page.");
   return page.listing;
-}
-
-async function showScrapedPostData() {
-  scrapedData.hidden = false;
-  scrapedDataSummary.textContent = "Reading the current tab...";
-  scrapedDataOutput.textContent = "";
-  showScrapedDataButton.disabled = true;
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) throw new Error("Could not find the active tab.");
-    if (!/^https?:\/\/([^.]+\.)?etsy\.com\/listing\/\d+(?:\/|$)/i.test(tab.url || "")) {
-      throw new Error("Open an Etsy listing page (/listing/<id>) to preview scraped data.");
-    }
-    const response = await chrome.tabs.sendMessage(tab.id, { kind: "aid:scrape-post" });
-    if (!response?.ok) throw new Error(response?.error || "This page is not an Etsy listing.");
-    scrapedDataSummary.textContent =
-      "Temporary preview only. Raw description and review text are not persisted.";
-    scrapedDataOutput.textContent = JSON.stringify(response, null, 2);
-    status.textContent = "Scraped data preview ready.";
-  } catch (error) {
-    scrapedDataSummary.textContent = error.message;
-    status.textContent = "Could not preview scraped data.";
-  } finally {
-    showScrapedDataButton.disabled = false;
-  }
 }
 
 async function showResultOnPage(imageUrl, result) {
@@ -83,61 +57,129 @@ async function showResultOnPage(imageUrl, result) {
   });
 }
 
+let scanInProgress = false;
+
 async function scanCurrentPage() {
-  pageResults.hidden = false;
-  imageResults.replaceChildren();
-  pageSummary.textContent = "Finding listing images...";
-  scanButton.disabled = true;
+  // Avoid running two expensive listing scans at the same time.
+  if (scanInProgress) return;
+  scanInProgress = true;
+
   try {
+    await requireScrapingEnabled();
     const listing = await getCurrentEtsyPage();
-    pageSummary.textContent = listing.title
-      ? `${listing.title} · ${listing.images.length} image${listing.images.length === 1 ? "" : "s"}`
-      : `${listing.images.length} listing image${listing.images.length === 1 ? "" : "s"} found`;
-    if (!listing.images.length) {
-      pageSummary.textContent += ". No suitable images were found.";
-      return;
+    const images = Array.isArray(listing.images) ? listing.images.slice(0, 20) : [];
+    const storedScore = listing.listingId
+      ? await chrome.runtime.sendMessage({
+        kind: "aid:get-listing-score",
+        listingId: listing.listingId,
+      })
+      : null;
+    const listingScore = storedScore?.ok && storedScore.available && storedScore.score?.overall !== null
+      ? storedScore.score
+      : null;
+    if (!images.length) {
+      throw new Error("No listing images found. Wait for the Etsy listing photos to load, then click Scan current listing again.");
     }
-    for (const image of listing.images) {
-      const response = await chrome.runtime.sendMessage({
-        kind: "aid:analyze",
-        imageUrl: image.url,
-        meta: listing,
-      });
-      if (response?.ok) await showResultOnPage(image.url, response.result);
-      imageResults.appendChild(createImageResult(image, response?.ok
-        ? response
-        : { ok: false, error: response?.error || "Analysis failed" }));
+
+    // Show thumbnails right away rather than waiting for the model to finish.
+    const scoreItems = images.map((image) => ({
+      url: image.url,
+      alt: image.alt || "Etsy listing image",
+      result: null,
+      status: "Analyzing…",
+    }));
+    document.dispatchEvent(new CustomEvent("rts:analysis-start", {
+      detail: { title: listing.title || "Current Etsy listing", images: scoreItems, listingScore }
+    }));
+
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      try {
+        // Do NOT convert to a huge data URL in the popup. The original extension
+        // sends the image URL to its offscreen ONNX analysis pipeline.
+        const response = await chrome.runtime.sendMessage({
+          kind: "aid:analyze",
+          imageUrl: image.url,
+          meta: listing,
+        });
+        if (!response?.ok) throw new Error(response?.error || "Analysis failed");
+        scoreItems[i] = { ...scoreItems[i], result: response.result, status: "complete" };
+        // Same badge mechanism used by the original scanner on Etsy pages.
+        try {
+          if (response?.ok) await showResultOnPage(image.url, response.result);
+        } catch (error) {
+          console.warn("Could not add on-page badge:", error);
+        }
+      } catch (error) {
+        scoreItems[i] = { ...scoreItems[i], status: error.message || "Analysis failed" };
+        console.error("Image analysis failed:", image.url, error);
+      }
+
+      document.dispatchEvent(new CustomEvent("rts:analysis-progress", {
+        detail: { index: i, item: scoreItems[i], complete: i + 1, total: images.length }
+      }));
     }
-    status.textContent = "Etsy page scan complete.";
+    document.dispatchEvent(new CustomEvent("rts:analysis", {
+      detail: { type: "listing", title: listing.title || "Current Etsy listing", images: scoreItems, listingScore }
+    }));
   } catch (error) {
-    pageSummary.textContent = error.message;
-    status.textContent = "Etsy page scan failed.";
+    document.dispatchEvent(new CustomEvent("rts:scan-unavailable", {
+      detail: { message: error.message }
+    }));
+    console.error("Listing scan failed:", error);
   } finally {
-    scanButton.disabled = false;
+    scanInProgress = false;
   }
 }
 
-scanButton.addEventListener("click", scanCurrentPage);
-showScrapedDataButton.addEventListener("click", showScrapedPostData);
-
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  result.hidden = true;
-  status.textContent = "Analyzing locally...";
+  manualResult.hidden = true;
+  manualFeedback.textContent = "Analyzing locally...";
   analyzeButton.disabled = true;
   try {
+    const imageUrl = urlInput.value.trim();
     const response = await chrome.runtime.sendMessage({
       kind: "aid:analyze",
-      imageUrl: urlInput.value.trim(),
+      imageUrl,
     });
     if (!response?.ok) throw new Error(response?.error || "Inference failed");
-    showResult(response.result);
-    status.textContent = "Analysis complete.";
+    const { result } = response;
+    const isAi = result.label === "likely-ai";
+    manualResultLabel.textContent = isAi ? "Likely AI-generated" : "Likely human-made";
+    manualResultSummary.textContent = isAi
+      ? "This is an automated estimate based on visual patterns."
+      : "This image shows a low AI signal based on the visual analysis.";
+    manualResultMeta.textContent =
+      `Score ${(result.score * 100).toFixed(1)}% · Threshold ${(result.threshold * 100).toFixed(1)}% · ` +
+      `Model ${result.modelVersion} · ${result.processingTimeMs} ms`;
+    manualResult.hidden = false;
+    manualFeedback.textContent = "Analysis complete.";
   } catch (error) {
-    status.textContent = `Error: ${error.message}`;
+    manualFeedback.textContent = `Error: ${error.message}`;
   } finally {
     analyzeButton.disabled = false;
   }
 });
 
-export { createImageResult, getCurrentEtsyPage, scanCurrentPage, showScrapedPostData };
+export { getCurrentEtsyPage, scanCurrentPage };
+
+// On popup launch, scan an Etsy listing without requiring authentication.
+// For other pages, the Scores tab displays guidance instead of running a scan.
+async function autoScanEtsyListing() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!/^https?:\/\/(?:[^/]+\.)?etsy\.com\/listing\/\d+(?:[/?#]|$)/i.test(tab?.url || "")) {
+      document.dispatchEvent(new CustomEvent("rts:scan-unavailable", {
+        detail: { message: "Open an Etsy listing to see its image ratings automatically. You can still analyze a pasted image URL in Manual." }
+      }));
+      return;
+    }
+    await scanCurrentPage();
+  } catch (error) {
+    document.dispatchEvent(new CustomEvent("rts:scan-unavailable", { detail: { message: error.message } }));
+  }
+}
+
+// Run after the other popup modules have attached their listeners.
+document.addEventListener("rts:scan-requested", autoScanEtsyListing);

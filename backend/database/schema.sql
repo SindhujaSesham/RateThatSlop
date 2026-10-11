@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS public.image_analyses (
         REFERENCES public.score_snapshots(id) ON DELETE CASCADE,
 
     image_index INTEGER NOT NULL
-        CHECK (image_index BETWEEN 1 AND 20),
+        CHECK (image_index BETWEEN 1 AND 100),
 
     image_url TEXT,
     image_hash TEXT,

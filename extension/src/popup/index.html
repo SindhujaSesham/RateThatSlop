@@ -3,42 +3,139 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>RateThatSlop</title>
+    <title>Rate That Slop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
-    <main>
-      <h1>RateThatSlop</h1>
-      <p class="intro">Analyze Etsy listing images locally in your browser.</p>
-      <button id="scan-page" type="button">Scan current Etsy page</button>
-      <button id="show-scraped-data" type="button">Show scraped data (temporary)</button>
-      <form id="analyze-form">
-        <label for="image-url">Direct image URL</label>
-        <input id="image-url" name="image-url" type="url"
-          placeholder="https://i.etsystatic.com/.../image.jpg" required>
-        <button type="submit">Analyze image</button>
-      </form>
-      <p id="status" role="status" aria-live="polite"></p>
-      <section id="page-results" hidden>
-        <h2>Current page</h2>
-        <p id="page-summary"></p>
-        <div id="image-results"></div>
-      </section>
-      <section id="scraped-data" hidden>
-        <h2>Temporary scraped data</h2>
-        <p id="scraped-data-summary"></p>
-        <pre id="scraped-data-output" aria-label="Temporary scraped data"></pre>
-      </section>
-      <section id="result" aria-live="polite" hidden>
-        <h2 id="result-label"></h2>
-        <p id="result-score"></p>
-        <dl>
-          <div><dt>Threshold</dt><dd id="result-threshold"></dd></div>
-          <div><dt>Model</dt><dd id="result-model"></dd></div>
-          <div><dt>Processing time</dt><dd id="result-time"></dd></div>
-        </dl>
-      </section>
-    </main>
+    <div class="app-shell">
+      <div class="app-card">
+        <aside class="sidebar" aria-label="Rate That Slop brand">
+          <button id="toggle-sidebar" class="sidebar-toggle" type="button"
+            aria-label="Collapse sidebar" aria-expanded="true" aria-controls="sidebar-content">←</button>
+          <div id="sidebar-content" class="sidebar-content">
+          <div class="sidebar-blob" aria-hidden="true"></div>
+          <div class="sidebar-blob-ring" aria-hidden="true"></div>
+          <img class="sidebar-sparkle" src="assets/sparkle.svg" alt="" width="36" height="36">
+
+          <div class="brand-row">
+            <div class="brand-mark">
+              <img src="assets/fox-mark.svg" alt="" width="44" height="44">
+            </div>
+            <p class="brand-name">Rate That Slop</p>
+          </div>
+
+          <div class="sidebar-copy">
+            <div class="pill pill-yellow">
+              <img src="assets/sparkle-badge.svg" alt="" width="14" height="14">
+              <span>Your clever listing companion</span>
+            </div>
+            <h1 class="hero-title">
+              <span>Spot AI.</span>
+              <span>Shop wiser.</span>
+            </h1>
+            <p class="hero-text">A friendly second look at the images behind every listing.</p>
+          </div>
+
+          <div class="privacy-callout">
+            <span class="privacy-shield" aria-hidden="true">
+              <img src="assets/shield-privacy.svg" alt="" width="179.9" height="179.9">
+            </span>
+            <p>Private by design. Images never leave your browser.</p>
+          </div>
+
+          <div class="sidebar-tile" aria-hidden="true"></div>
+          </div>
+        </aside>
+
+        <main class="panel">
+          <nav class="popup-nav" aria-label="Popup navigation">
+            <button type="button" data-view="scores">Scores</button>
+            <button type="button" data-view="auth">Log In</button>
+            <button type="button" data-view="manual">Manual</button>
+            <button type="button" data-view="settings">Settings</button>
+          </nav>
+
+          <section id="scores-view" class="popup-view">
+            <h2>Listing scores</h2>
+            <p class="tab-help">Image ratings are available without an account. Etsy listings are analyzed automatically when you open the popup.</p>
+            <div id="scores-empty" class="feature-card">
+              <p id="scores-empty-message">Checking the current Etsy listing…</p>
+              <button id="scores-retry" class="small-action" type="button">Scan current listing</button>
+            </div>
+            <div id="scores-data" hidden>
+              <div class="feature-card">
+                <p class="score-caption">Latest analysis</p>
+                <h3 id="scores-heading">Results</h3>
+                <p id="scores-summary"></p>
+              </div>
+              <h3>Image ratings</h3>
+              <div id="scores-images" class="score-images" aria-label="Image ratings, scroll horizontally"></div>
+            </div>
+            <div class="feature-card">
+              <h3>Seller assessment</h3>
+              <p>Not available yet.</p>
+              <h3>Description assessment</h3>
+              <p>Not available yet.</p>
+              <h3>Community report score</h3>
+              <p>Not available yet. Reports will require an account.</p>
+              <button id="scores-report-login" class="small-action" type="button">Log in to submit a report</button>
+            </div>
+          </section>
+
+          <section id="auth-view" class="popup-view" hidden>
+            <h2 id="auth-heading">Log in</h2>
+            <p class="tab-help">Scanning works without an account. Sign in to use shared data and submit reports.</p>
+            <form id="auth-form" class="feature-card">
+              <label for="auth-email">Email</label>
+              <input id="auth-email" name="email" type="email" autocomplete="email" required>
+              <label for="auth-password">Password</label>
+              <input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="6" required>
+              <button id="auth-submit" class="small-action" type="submit">Log in</button>
+            </form>
+            <button id="auth-switch" class="text-action" type="button">Need an account? Sign up</button>
+            <p id="auth-feedback" class="tab-help" role="status" aria-live="polite"></p>
+          </section>
+
+          <section id="manual-view" class="popup-view" hidden>
+            <h2>Analyze an image</h2>
+            <p class="tab-help">Paste a direct image link for a one-off local estimate.</p>
+            <form id="analyze-form" class="feature-card">
+              <label for="image-url">Image URL</label>
+              <input id="image-url" name="image-url" type="url"
+                placeholder="https://i.etsystatic.com/.../image.jpg" required>
+              <button type="submit" class="small-action">Analyze image</button>
+            </form>
+            <p id="manual-feedback" class="tab-help" role="status" aria-live="polite"></p>
+            <div id="manual-result" class="feature-card" hidden aria-live="polite">
+              <p class="score-caption">AI likelihood</p>
+              <h3 id="manual-result-label"></h3>
+              <p id="manual-result-summary"></p>
+              <p id="manual-result-meta"></p>
+            </div>
+          </section>
+
+          <section id="settings-view" class="popup-view" hidden>
+            <h2>Feature settings</h2>
+            <p class="tab-help">Sign in to unlock all settings. Controls remain disabled until authentication is connected.</p>
+            <div class="setting-list">
+              <label class="setting-row locked"><span>Scrape Etsy listings</span><input type="checkbox" role="switch" data-setting="scrapingEnabled" disabled></label>
+              <label class="setting-row locked"><span>Upload scores to server</span><input type="checkbox" role="switch" data-setting="serverUploadEnabled" disabled></label>
+              <label class="setting-row locked"><span>Use shared server information</span><input type="checkbox" role="switch" data-setting="serverInfoEnabled" disabled></label>
+              <label class="setting-row locked"><span>AI-test descriptions</span><input type="checkbox" role="switch" data-setting="descriptionAiEnabled" disabled></label>
+              <label class="setting-row locked"><span>Use user reports</span><input type="checkbox" role="switch" data-setting="userReviewsEnabled" disabled></label>
+              <label class="setting-row locked"><span>Use Etsy reviews</span><input type="checkbox" role="switch" data-setting="etsyReviewsEnabled" disabled></label>
+            </div>
+            <p id="settings-note" class="tab-help" role="status">Log in to unlock settings. Authentication will be connected in the next step.</p>
+          </section>
+        </main>
+      </div>
+    </div>
     <script type="module" src="index.js"></script>
+    <script type="module" src="sidebar.js"></script>
+    <script type="module" src="navigation.js"></script>
+    <script type="module" src="tabs-ui.js"></script>
   </body>
 </html>
