@@ -451,7 +451,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.kind === "aid:get-auth-state") {
-    getSession()
+    getAccessToken()
+      .then((token) => token ? getSession() : null)
       .then((session) => sendResponse({ ok: true, user: session?.user || null }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -471,9 +472,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.kind === "aid:submit-score") {
-    getSettings().then((settings) => {
+    getSettings().then(async (settings) => {
       if (!isSettingEnabled(settings, "serverUploadEnabled")) {
         throw new Error("server uploads are disabled in settings");
+      }
+      if (!await getAccessToken()) {
+        return { skipped: "not-signed-in" };
       }
       return apiClient.submitListingScore(message.payload).then(async (response) => {
         const payload = message.payload;
@@ -489,7 +493,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return response;
       });
     })
-      .then((score) => sendResponse({ ok: true, score }))
+      .then((score) => sendResponse({ ok: true, ...score }))
       .catch((error) => {
         writeDiagnostic("listing-score-upload-failed", { error: error.message });
         sendResponse({ ok: false, error: error.message });

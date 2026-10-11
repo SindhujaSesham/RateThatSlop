@@ -47,7 +47,12 @@ export function createApiClient({
       try {
         body = await response.json();
       } catch {
-        throw new Error("server returned invalid JSON");
+        const contentType = response.headers.get("content-type") || "unknown content type";
+        throw new Error(`server returned invalid JSON (HTTP ${response.status}, ${contentType}); redeploy the backend if this endpoint is missing`);
+      }
+      if (response.status === 404 && options.allowNotFound) {
+        await writeDiagnostic("server-resource-miss", { method, path, status: response.status });
+        return null;
       }
       if (!response.ok) {
         await writeDiagnostic("server-request-failed", {
@@ -71,7 +76,9 @@ export function createApiClient({
 
   return {
     getListingScore(platform, listingId) {
-      return request(`/api/scores/${encodeURIComponent(platform)}/${encodeURIComponent(listingId)}`);
+      return request(`/api/scores/${encodeURIComponent(platform)}/${encodeURIComponent(listingId)}`, {
+        allowNotFound: true,
+      });
     },
     submitListingScore(payload) {
       return request("/api/scores", { method: "POST", body: JSON.stringify(payload) });
