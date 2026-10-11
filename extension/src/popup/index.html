@@ -55,6 +55,23 @@
             <p class="panel-lead">Check the images on your current listing, or paste a direct image link below.</p>
           </header>
 
+          <section class="account-panel" aria-labelledby="account-heading">
+            <h3 id="account-heading">Server account</h3>
+            <p id="account-state" role="status" aria-live="polite">Signed out</p>
+            <form id="account-form">
+              <label for="server-url">API server URL</label>
+              <input id="server-url" type="url" value="http://localhost:3000" required>
+              <label for="account-email">Email</label>
+              <input id="account-email" type="email" autocomplete="username" required>
+              <label for="account-password">Password</label>
+              <input id="account-password" type="password" autocomplete="current-password" required>
+              <div class="account-actions">
+                <button type="submit" id="account-submit">Sign in</button>
+                <button type="button" id="account-sign-out" hidden>Sign out</button>
+              </div>
+            </form>
+          </section>
+
           <button id="scan-page" class="scan-button" type="button">
             <span class="scan-button-left">
               <span class="scan-icon-wrap" aria-hidden="true">

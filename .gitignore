@@ -23,3 +23,4 @@ data/
 .env
 backend/.env
 backend/node_modules/
+extension/src/background/build-config.json

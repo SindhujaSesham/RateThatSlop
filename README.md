@@ -5,10 +5,9 @@ sewing-pattern listing images may be AI-generated. Inference runs locally in
 the browser using the bundled ONNX model.
 
 The authenticated server provides shared listing ratings, per-image analysis
-scores, trusted creator information, Etsy review data, and extension user
-reports. Signed-in users can read those signals and explicitly submit compact
-listing snapshots. Unsigned users remain local-only and cannot read or write
-server data or request AI description evaluation.
+scores, trusted creator information, Etsy review data, extension user
+reports, and AI evaluation of listing text. Unsigned users remain local-only
+and cannot read or write server data or request description evaluation.
 
 ## Development
 
@@ -19,6 +18,12 @@ npm install
 npm test
 npm run build
 ```
+
+The extension build reads only `SUPABASE_URL` and
+`SUPABASE_PUBLISHABLE_KEY` from `backend/.env` and writes them to a
+gitignored generated module. `SUPABASE_KEY` is never read by the extension
+build. The popup asks only for the API server URL; for a hosted HTTPS API,
+Chrome requests permission for that origin when you sign in.
 
 The tests cover Etsy host validation, image deduplication/filtering, and
 listing metadata extraction. The build vendors the local ONNX Runtime files
@@ -53,7 +58,11 @@ disabled with the `scrapingEnabled` extension-storage setting. A listing is
 skipped when its listing ID is already marked in the local post cache. The
 cache stores the creator, price, URL, name, image-byte hashes, and an optional
 structured AI rating; raw description and review text is passed only to the
-processing boundary and is not persisted by the extension.
+processing boundary and is not persisted by the extension. Automatic
+description evaluation is enabled by default and can be disabled with the
+popup checkbox. When enabled and signed in, the description plus listing title,
+price, instructions, and attributes are sent to the authenticated server for
+AI evaluation. Review text and image bytes are not included.
 
 Completed image-inference results are stored as compact metadata in the
 extension's local cache, keyed by the SHA-256 hash of the fetched image
@@ -100,7 +109,8 @@ Routes are grouped by responsibility:
   compact per-image scores. It accepts hashes and optional URLs, never image
   bytes.
 - `POST /api/descriptions/evaluate` evaluates description text with AI and
-  requires authentication.
+  optional title, price, instructions, and attributes; authentication is
+  required.
 - `GET /api/reports/:platform/:listingId` and `POST /api/reports` provide
   authenticated report access and submission.
 

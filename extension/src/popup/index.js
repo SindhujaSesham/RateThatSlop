@@ -18,6 +18,26 @@ const scrapedDataSummary = document.querySelector("#scraped-data-summary");
 const scrapedDataOutput = document.querySelector("#scraped-data-output");
 const showScrapedDataButton = document.querySelector("#show-scraped-data");
 const settingInputs = [...document.querySelectorAll("[data-setting]")];
+const accountForm = document.querySelector("#account-form");
+const accountState = document.querySelector("#account-state");
+const accountSignOut = document.querySelector("#account-sign-out");
+const accountSubmit = document.querySelector("#account-submit");
+const serverUrlInput = document.querySelector("#server-url");
+const accountEmailInput = document.querySelector("#account-email");
+const accountPasswordInput = document.querySelector("#account-password");
+const BACKGROUND_MESSAGE_TIMEOUT_MS = 15000;
+
+function sendBackgroundMessage(message) {
+  let timeoutId;
+  const timeout = new Promise((resolve) => {
+    timeoutId = window.setTimeout(() => resolve({
+      ok: false,
+      error: "The extension background service did not respond within 15 seconds. Check chrome://extensions for service-worker errors, then reload the extension.",
+    }), BACKGROUND_MESSAGE_TIMEOUT_MS);
+  });
+  return Promise.race([chrome.runtime.sendMessage(message), timeout])
+    .finally(() => window.clearTimeout(timeoutId));
+}
 
 async function loadSettings() {
   const response = await chrome.runtime.sendMessage({ kind: "aid:get-settings" });
@@ -81,6 +101,64 @@ for (const input of settingInputs) {
     });
   });
 }
+
+chrome.storage.local.get("serverBaseUrl")
+  .then((settings) => {
+    serverUrlInput.value = settings.serverBaseUrl || "http://localhost:3000";
+  });
+
+chrome.runtime.sendMessage({ kind: "aid:get-auth-state" }).then((response) => {
+  if (response?.ok && response.user) {
+    accountState.textContent = `Signed in as ${response.user.email || "account"}`;
+    accountSignOut.hidden = false;
+  }
+}).catch(() => {});
+
+accountForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  accountSubmit.disabled = true;
+  accountState.textContent = "Signing in...";
+  try {
+    const serverOrigin = new URL(serverUrlInput.value.trim()).origin;
+    if (serverOrigin.startsWith("https://")) {
+        const permissionOrigin = `${serverOrigin}/*`;
+        const granted = await chrome.permissions.request({ origins: [permissionOrigin] });
+      if (!granted) throw new Error("Permission to connect to the API server was not granted.");
+    }
+      accountState.textContent = "Saving API server setting...";
+      const config = await sendBackgroundMessage({
+      kind: "aid:configure-server",
+      serverBaseUrl: serverUrlInput.value,
+    });
+    if (!config?.ok) throw new Error(config?.error || "Could not save server settings.");
+      accountState.textContent = "Checking API server and Supabase setup...";
+      const setup = await sendBackgroundMessage({ kind: "aid:check-sign-in-setup" });
+      if (!setup?.ok) throw new Error(setup?.error || "Sign-in setup check failed.");
+      accountState.textContent = "Signing in to Supabase...";
+      const response = await sendBackgroundMessage({
+      kind: "aid:sign-in",
+      email: accountEmailInput.value,
+      password: accountPasswordInput.value,
+    });
+    if (!response?.ok) throw new Error(response?.error || "Sign-in failed.");
+    accountPasswordInput.value = "";
+    accountState.textContent = `Signed in as ${response.user?.email || accountEmailInput.value}`;
+    accountSignOut.hidden = false;
+    status.textContent = "Signed in. Server features are available.";
+  } catch (error) {
+    accountState.textContent = error.message;
+    accountPasswordInput.value = "";
+    console.error("RateThatSlop sign-in setup failed:", error);
+  } finally {
+    accountSubmit.disabled = false;
+  }
+});
+
+accountSignOut.addEventListener("click", async () => {
+  const response = await chrome.runtime.sendMessage({ kind: "aid:sign-out" });
+  accountState.textContent = response?.ok ? "Signed out" : response?.error || "Sign-out failed.";
+  accountSignOut.hidden = true;
+});
 
 function createImageResult(image, response) {
   const card = document.createElement("article");

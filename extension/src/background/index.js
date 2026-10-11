@@ -1,7 +1,7 @@
 // Model orchestration service: owns the cache and forwards image requests to
 // the offscreen document, where ONNX Runtime can decode and process images.
 import { apiClient } from "./api-client.js";
-import { getAccessToken } from "./auth.js";
+import { checkSignInSetup, clearSession, getAccessToken, getSession, signInWithPassword } from "./auth.js";
 import { getSettings, isSettingEnabled, setSettings } from "./settings.js";
 import {
   cacheListing,
@@ -17,6 +17,7 @@ const CACHE_MAX = 3000;
 const MAX_IMAGES = 100;
 const CACHE_STORAGE_PREFIX = "inference:";
 const POST_STORAGE_PREFIX = "post:";
+const SCRAPING_ENABLED_KEY = "scrapingEnabled";
 const cache = new Map();
 const inflight = new Map();
 const serverListingInflight = new Map();
@@ -288,6 +289,43 @@ async function scrapePost(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.kind === "aid:configure-server") {
+    const serverBaseUrl = typeof message.serverBaseUrl === "string"
+      ? message.serverBaseUrl.trim().replace(/\/+$/, "") : "";
+    if (!/^https:\/\/[^/]+$|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(serverBaseUrl)) {
+      sendResponse({ ok: false, error: "Use an HTTPS API URL or a localhost URL." });
+      return false;
+    }
+    chrome.storage.local.set({ serverBaseUrl })
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:sign-in") {
+    signInWithPassword({ email: message.email, password: message.password })
+      .then((result) => sendResponse({ ok: true, user: result.user }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:check-sign-in-setup") {
+    chrome.storage.local.get("serverBaseUrl")
+      .then((settings) => checkSignInSetup(settings.serverBaseUrl))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:get-auth-state") {
+    getSession()
+      .then((session) => sendResponse({ ok: true, user: session?.user || null }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:sign-out") {
+    clearSession()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.kind === "aid:get-listing-score") {
     serverListing({ meta: {
       listingId: message.listingId,
