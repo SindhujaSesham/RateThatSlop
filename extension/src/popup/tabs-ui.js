@@ -141,6 +141,7 @@ const authForm = $("#auth-form");
 const authHeading = $("#auth-heading");
 const authSubmit = $("#auth-submit");
 const authSwitch = $("#auth-switch");
+const authSignOut = $("#auth-sign-out");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
 const settingsNote = $("#settings-note");
@@ -178,8 +179,10 @@ async function loadAuthState() {
     authSubmit.textContent = "Signed in";
     authSubmit.disabled = true;
     authSwitch.hidden = true;
+    authSignOut.hidden = false;
     setSettingsEnabled(true);
   } else {
+    authSignOut.hidden = true;
     setSettingsEnabled(false);
   }
 }
@@ -191,6 +194,16 @@ function updateAuthMode() {
   authSwitch.textContent = registering ? "Already have an account? Log in" : "Need an account? Sign up";
   password.autocomplete = registering ? "new-password" : "current-password";
   authFeedback.textContent = "";
+}
+
+function showSignedOutState() {
+  authMode = "login";
+  authForm.reset();
+  authSignOut.hidden = true;
+  authSignOut.disabled = false;
+  authSubmit.disabled = false;
+  authSwitch.hidden = false;
+  updateAuthMode();
 }
 
 authSwitch.addEventListener("click", () => {
@@ -218,12 +231,28 @@ authForm.addEventListener("submit", (event) => {
       authFeedback.textContent = `Signed in as ${response.user?.email || email}.`;
       authSubmit.textContent = "Signed in";
       authSwitch.hidden = true;
+      authSignOut.hidden = false;
       setSettingsEnabled(true);
     })
     .catch((error) => {
       authFeedback.textContent = error.message;
       authSubmit.disabled = false;
     });
+});
+
+authSignOut.addEventListener("click", async () => {
+  authSignOut.disabled = true;
+  authFeedback.textContent = "Signing out…";
+  try {
+    const response = await sendBackgroundMessage({ kind: "aid:sign-out" });
+    if (!response?.ok) throw new Error(response?.error || "Could not sign out.");
+    showSignedOutState();
+    authFeedback.textContent = "Signed out.";
+    setSettingsEnabled(false);
+  } catch (error) {
+    authFeedback.textContent = error.message;
+    authSignOut.disabled = false;
+  }
 });
 
 document.querySelectorAll("[data-setting]").forEach((control) => {
