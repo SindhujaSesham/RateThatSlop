@@ -21,9 +21,9 @@ by default.
   extraction, throttled image requests, and page badges. Keep model logic out
   of the content script.
 - Treat `extension/src/content/index.js` as the stable Etsy integration
-  surface for the current scraper contract. When changing inference routing,
-  do not modify this file unless the user explicitly requests it; adapt the
-  background or popup message flow instead.
+  surface for the current scraper contract. It may start background image
+  analysis and listing synchronization, but must keep model/inference
+  implementation in the background service worker and offscreen document.
 - The `aid:analyze` response consumed by the content script must remain
   `{ ok: true, result: { score, label, threshold, modelVersion, imageId,
   processingTimeMs } }` on success and `{ ok: false, error }` on failure.
@@ -80,6 +80,17 @@ by default.
   requires explicit opt-in and separate privacy documentation.
 - Keep server-provided ratings distinguishable from fresh local image
   inference, and show which signals were used and when they were calculated.
+- Listing analysis is background-first: the content script may send
+  `aid:sync-listing` after local image results are available, so opening the
+  popup must display or reuse existing work rather than trigger a second
+  calculation.
+- Local listing cache records must distinguish local-only results from
+  server-synchronized results (for example with `source` and `serverSynced`).
+  A fresh local record must not suppress a required server-upload retry.
+- The popup must recover when an Etsy tab was already open during extension
+  reload. With the manifest `scripting` permission, retry a missing
+  `aid:collect-page` receiver by injecting the content script, then report an
+  explicit unavailable error if injection is forbidden.
 - Keep training datasets, checkpoints, and experimental training scripts out
   of the browser extension repository unless explicitly needed.
 - Use `RateThatSlop` for user-facing branding, package metadata, release
@@ -301,7 +312,8 @@ by default.
   listing records and ratings. Cache keys use `etsy:<numeric-listing-id>`,
   never an image URL or unnormalized page URL. Image-byte hashes identify
   analyzed image files and must not be treated as listing identities. Cached
-  records are valid for seven days and must be cleared on logout.
+  records are valid for seven days and must be cleared on logout. Preserve
+  server provenance and synchronization state when writing cached records.
 - `extension/src/popup/auth-ui.js` owns login and account controls when that
   UI is implemented; it must expose signed-out and server-unavailable states
   accessibly.
@@ -329,15 +341,27 @@ by default.
   operations.
 - Backend server routes are mounted in `backend/server.js`: authenticated
   score reads and writes are under `/api/scores`, description evaluation is
-  under `/api/evaluate-description`, and reports remain under `/api/reports`.
+  under `/api/evaluate-description` (with the `/api/descriptions` route
+  retained as a compatible route group), and reports remain under
+  `/api/reports`.
   Description evaluation remains authenticated and returns the structured AI
-  assessment for the popup; preserve explicit non-JSON/error responses when
-  diagnosing deployment problems. Keep server responses structured so the UI
-  can display the overall score, per-image scores, source, model/scoring
-  versions, reasons, and calculation timestamps.
+  assessment for the popup, including the evaluator's 0-100 value, a
+  normalized `descriptionScore` in the 0-1 interval, and a cleaned
+  `descriptionRationale` without a duplicated `10/100`-style prefix.
+  Preserve explicit non-JSON/error responses when diagnosing deployment
+  problems. Keep server responses structured so the UI can display the
+  overall score, per-image scores, description rationale, source,
+  model/scoring versions, reasons, and calculation timestamps.
 - Backend score writes must validate numeric scores to the unit interval,
   cap submissions at 100 images, and store image hashes rather than image
-  bytes. Database constraints and validation must remain aligned.
+  bytes. Score snapshots store `description_score` and
+  `description_rationale`; image rows belong to the inserted snapshot.
+  Database constraints and validation must remain aligned.
+- Applying `backend/database/schema.sql` to a local checkout does not update
+  an existing Supabase project automatically. When schema fields change,
+  provide and apply an explicit Supabase SQL migration such as
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, then verify the live columns
+  before diagnosing missing data as a client-cache issue.
 - Keep server feature tests in `extension/test/api-client.test.js`,
   `extension/test/auth.test.js`, and
   `extension/test/listing-cache.test.js`.
