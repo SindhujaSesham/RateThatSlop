@@ -211,6 +211,78 @@ input {
   color: var(--hero-soft);
 }
 
+.account-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--input-bg);
+}
+
+.account-panel h3,
+.account-panel p {
+  margin: 0;
+}
+
+.account-panel h3 {
+  font-size: 14px;
+}
+
+#account-state {
+  min-height: 1.2em;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#account-form {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+#account-form label {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+#account-form input {
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  background: var(--cream);
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.account-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.account-actions button {
+  padding: 6px 12px;
+  border: 1.5px solid var(--ink);
+  border-radius: 7px;
+  background: var(--yellow);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.account-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .privacy-callout {
   position: relative;
   z-index: 1;

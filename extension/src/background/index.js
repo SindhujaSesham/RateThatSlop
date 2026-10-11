@@ -1,5 +1,15 @@
 // Model orchestration service: owns the cache and forwards image requests to
 // the offscreen document, where ONNX Runtime can decode and process images.
+import { apiClient } from "./api-client.js";
+import { checkSignInSetup, clearSession, getAccessToken, getSession, signInWithPassword, signUpWithPassword } from "./auth.js";
+import { getSettings, isSettingEnabled, setSettings } from "./settings.js";
+import {
+  cacheListing,
+  getCachedListing,
+  isFresh,
+  listingKey,
+  normalizeServerScore,
+} from "./listing-cache.js";
 
 const OFFSCREEN_URL = "src/background/offscreen.html";
 const MODEL_VERSION_FALLBACK = "unknown";
@@ -10,6 +20,7 @@ const POST_STORAGE_PREFIX = "post:";
 const SCRAPING_ENABLED_KEY = "scrapingEnabled";
 const cache = new Map();
 const inflight = new Map();
+const serverListingInflight = new Map();
 let offscreenReady = null;
 let modelManifestPromise = null;
 
@@ -128,13 +139,15 @@ async function analyze(message) {
     ? message.imageHash
     : await hashImageInputs(imageUrl, imageData);
   const key = cacheKeyFor(imageHash);
+  const manifest = validateManifest(await modelManifest());
+  const serverResult = await serverImageResult(message, imageHash, manifest);
+  if (serverResult) return serverResult;
   const cached = await cacheGet(key);
   if (cached) return cached;
   if (inflight.has(key)) return inflight.get(key);
 
   const request = (async () => {
     await ensureOffscreen();
-    const manifest = validateManifest(await modelManifest());
     const response = await chrome.runtime.sendMessage({
       kind: "aid:infer",
       imageUrl,
@@ -171,6 +184,44 @@ async function analyze(message) {
   return request;
 }
 
+async function serverListing(message) {
+  if (!isSettingEnabled(await getSettings(), "serverInfoEnabled")) return null;
+  const listingId = typeof message?.meta?.listingId === "string"
+    ? message.meta.listingId : "";
+  if (!listingId || !(await getAccessToken())) return null;
+  const key = listingKey("etsy", listingId);
+  if (!key) return null;
+  const cached = await getCachedListing(key);
+  if (cached?.calculatedAt && isFresh(cached.calculatedAt)) return cached;
+  if (serverListingInflight.has(key)) return serverListingInflight.get(key);
+
+  const request = apiClient.getListingScore("etsy", listingId)
+    .then((response) => normalizeServerScore(response))
+    .then((score) => score ? cacheListing(key, score) : null)
+    .catch(() => null)
+    .finally(() => serverListingInflight.delete(key));
+  serverListingInflight.set(key, request);
+  return request;
+}
+
+async function serverImageResult(message, imageHash, manifest) {
+  const listing = await serverListing(message);
+  const image = listing?.images.find((candidate) => candidate.imageId === imageHash);
+  if (!image) return null;
+  const threshold = Number(manifest.threshold ?? 0.65);
+  return {
+    score: image.score,
+    label: image.score >= threshold ? "likely-ai" : "likely-real",
+    threshold,
+    modelVersion: image.modelVersion,
+    imageId: image.imageId,
+    processingTimeMs: 0,
+    source: "server",
+    calculatedAt: listing.calculatedAt,
+    listingRating: listing.overall,
+  };
+}
+
 function compactAiRating(value) {
   if (!value || typeof value !== "object") return undefined;
   const score = Number(value.score ?? value.rating);
@@ -189,17 +240,25 @@ async function scrapePost(message) {
   const listingId = typeof identity?.listingId === "string" ? identity.listingId : "";
   if (!listingId) throw new Error("listing identity is required");
 
-  const settings = await chrome.storage.local.get(SCRAPING_ENABLED_KEY);
-  if (settings[SCRAPING_ENABLED_KEY] === false) return { ok: true, skipped: "disabled" };
+  const settings = await getSettings();
+  if (!settings.scrapingEnabled) return { ok: true, skipped: "disabled" };
 
   const storageKey = `${POST_STORAGE_PREFIX}${listingId}`;
   const existing = await chrome.storage.local.get(storageKey);
   if (existing[storageKey]) return { ok: true, skipped: "already-scraped" };
 
-  const listingImages = Array.isArray(post.reviewsAndImages?.images)
-    ? post.reviewsAndImages.images : [];
-  const reviewImages = Array.isArray(post.reviewsAndImages?.reviewImages)
-    ? post.reviewsAndImages.reviewImages : [];
+  const reviewsAndImages = settings.etsyReviewsEnabled
+    ? post.reviewsAndImages
+    : {
+      ...post.reviewsAndImages,
+      ratings: "",
+      reviews: [],
+      reviewImages: [],
+    };
+  const listingImages = Array.isArray(reviewsAndImages?.images)
+      ? reviewsAndImages.images : [];
+  const reviewImages = Array.isArray(reviewsAndImages?.reviewImages)
+    ? reviewsAndImages.reviewImages : [];
   const images = [...listingImages, ...reviewImages]
       .map((image) => image?.url)
       .filter((url) => typeof url === "string" && /^https?:\/\//i.test(url))
@@ -230,9 +289,133 @@ async function scrapePost(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.kind === "aid:configure-server") {
+    const serverBaseUrl = typeof message.serverBaseUrl === "string"
+      ? message.serverBaseUrl.trim().replace(/\/+$/, "") : "";
+    if (!/^https:\/\/[^/]+$|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(serverBaseUrl)) {
+      sendResponse({ ok: false, error: "Use an HTTPS API URL or a localhost URL." });
+      return false;
+    }
+    chrome.storage.local.set({ serverBaseUrl })
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:sign-in") {
+    signInWithPassword({ email: message.email, password: message.password })
+      .then((result) => sendResponse({ ok: true, user: result.user }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:sign-up") {
+    signUpWithPassword({ email: message.email, password: message.password })
+      .then((result) => sendResponse({
+        ok: true,
+        user: result.user,
+        requiresEmailConfirmation: result.requiresEmailConfirmation,
+      }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:check-sign-in-setup") {
+    chrome.storage.local.get("serverBaseUrl")
+      .then((settings) => checkSignInSetup(settings.serverBaseUrl))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:get-auth-state") {
+    getSession()
+      .then((session) => sendResponse({ ok: true, user: session?.user || null }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:sign-out") {
+    clearSession()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:get-listing-score") {
+    serverListing({ meta: {
+      listingId: message.listingId,
+    } })
+      .then((score) => sendResponse({ ok: true, available: Boolean(score), score }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:submit-score") {
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "serverUploadEnabled")) {
+        throw new Error("server uploads are disabled in settings");
+      }
+      return apiClient.submitListingScore(message.payload);
+    })
+      .then((score) => sendResponse({ ok: true, score }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:evaluate-description") {
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "descriptionAiEnabled")) {
+        throw new Error("AI description testing is disabled in settings");
+      }
+      return apiClient.evaluateDescription(message.description);
+    })
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:evaluate-reviews") {
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "scrapingEnabled")) {
+        throw new Error("Etsy scraping is disabled in settings");
+      }
+      if (!isSettingEnabled(settings, "etsyReviewsEnabled")) {
+        throw new Error("Etsy reviews are disabled in settings");
+      }
+      return apiClient.evaluateReviews(message.reviewsAndImages);
+    })
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.kind === "aid:scrape-post") {
     scrapePost(message)
       .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:get-user-reviews") {
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "userReviewsEnabled")) {
+        throw new Error("user reviews are disabled in settings");
+      }
+      return apiClient.getUserReviews(message.platform || "etsy", message.listingId);
+    })
+      .then((reviews) => sendResponse({ ok: true, reviews }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:submit-user-review") {
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "userReviewsEnabled") ||
+          !isSettingEnabled(settings, "serverUploadEnabled")) {
+        throw new Error("user review uploads are disabled in settings");
+      }
+      return apiClient.submitUserReview(message.payload);
+    })
+      .then((review) => sendResponse({ ok: true, review }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:get-settings") {
+    getSettings().then((settings) => sendResponse({ ok: true, settings }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:set-settings") {
+    setSettings(message.settings).then((settings) => sendResponse({ ok: true, settings }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }

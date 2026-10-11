@@ -1,11 +1,11 @@
 
 const express = require("express");
 const supabase = require("../config/supabase");
+const requireAuth = require("../middleware/auth");
 
 const router = express.Router();
 
-// Get a pattern by its platform and listing ID
-router.get("/:platform/:listingId", async (req, res) => {
+router.get("/:platform/:listingId", requireAuth, async (req, res) => {
     const { platform, listingId } = req.params;
 
     try {

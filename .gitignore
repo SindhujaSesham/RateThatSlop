@@ -12,7 +12,6 @@ pnpm-debug.log*
 *.safetensors
 data/
 .venv/
-.github/copilot-instructions.md
 
 # personal Claude Code overrides
 .claude/settings.local.json
@@ -24,3 +23,4 @@ data/
 .env
 backend/.env
 backend/node_modules/
+extension/src/background/build-config.json
