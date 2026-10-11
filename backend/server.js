@@ -2,6 +2,12 @@
 
 const express = require("express");
 const cors = require("cors");
+
+// Database and authentication
+const supabase = require("./config/supabase");
+const requireAuth = require("./middleware/auth");
+
+// API routes
 const patternRoutes = require("./routes/patterns");
 const reportRoutes = require("./routes/reports");
 const scoreRoutes = require("./routes/scores");
@@ -9,7 +15,6 @@ const healthRoutes = require("./routes/health");
 const userRoutes = require("./routes/users");
 const descriptionRoutes = require("./routes/descriptions");
 const reviewRoutes = require("./routes/reviews");
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -110,6 +115,42 @@ app.post("/api/evaluate-description", async (req, res) => {
     }
 });
 
+// ============================================
+// Gemini Review Evaluation Endpoint
+// ============================================
+
+// Evaluates Etsy sewing pattern reviews
+// using the evaluate-reviews.mjs file.
+
+app.post("/api/evaluate-reviews", async (req, res) => {
+    try {
+        const { reviews } = req.body || {};
+
+        // Make sure reviews were provided
+        if (!Array.isArray(reviews) || reviews.length === 0) {
+            return res.status(400).json({
+                error: "A non-empty array of reviews is required."
+            });
+        }
+
+        // Import the review evaluation function
+        const { evaluateReviews } =
+            await import("./evaluate-reviews.mjs");
+
+        // Send reviews for evaluation
+        const result = await evaluateReviews(reviews);
+
+        // Return the evaluation results
+        return res.status(200).json(result);
+
+    } catch (error) {
+        console.error("Review evaluation failed:", error);
+
+        return res.status(500).json({
+            error: "Review evaluation failed."
+        });
+    }
+});
 
 // ============================================
 // Start the server
