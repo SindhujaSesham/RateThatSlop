@@ -46,6 +46,11 @@ body {
   background: var(--cream-panel);
 }
 
+html.sidebar-collapsed,
+body.sidebar-collapsed {
+  width: 504px;
+}
+
 body {
   color: var(--ink);
   font-family: var(--font-body);
@@ -764,7 +769,10 @@ input {
 [hidden] { display: none !important; }
 
 .app-card { grid-template-columns: 260px minmax(0, 1fr); }
-.app-card.sidebar-collapsed { grid-template-columns: 44px minmax(0, 1fr); }
+.app-card.sidebar-collapsed {
+  width: 504px;
+  grid-template-columns: 44px 460px;
+}
 .app-card.sidebar-collapsed .sidebar { padding: 0; }
 
 .sidebar { position: relative; }
