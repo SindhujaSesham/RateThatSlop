@@ -278,6 +278,15 @@ async function analyzePageImages(data) {
         inFlightImages.delete(image.url);
       }
     }
+    if (isListingPage() && data.listing.listingId) {
+      chrome.runtime.sendMessage({
+        kind: "aid:sync-listing",
+        listing: data.listing,
+        images: [...analyzedResults.entries()]
+          .filter(([url]) => data.listing.images.some((image) => image.url === url))
+          .map(([url, result]) => ({ url, imageId: result.imageId, aiScore: result.score, modelVersion: result.modelVersion })),
+      }).catch(() => {});
+    }
   })().finally(() => {
     pageScanPromise = null;
   });

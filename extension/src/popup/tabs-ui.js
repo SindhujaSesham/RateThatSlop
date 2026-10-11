@@ -108,8 +108,10 @@ function renderDescriptionAssessment(assessment) {
   const classification = typeof result.classification === "string"
     ? result.classification
     : "assessment complete";
-  const rationale = typeof result.overall_rationale === "string"
-    ? ` ${result.overall_rationale}`
+  const rawRationale = typeof result.descriptionRationale === "string"
+    ? result.descriptionRationale : result.overall_rationale;
+  const rationale = typeof rawRationale === "string"
+    ? ` ${rawRationale.replace(/^\s*AI-writing likelihood:\s*\d+\s*\/\s*100(?:\s*\([^)]*\))?\.\s*/i, "").trim()}`
     : "";
   descriptionAssessment.textContent =
     `AI-writing likelihood: ${score.toFixed(0)}/100 (${classification}).${rationale}`;

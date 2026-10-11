@@ -22,6 +22,10 @@ export function normalizeServerScore(response) {
   ) : [];
   return {
     overall: Number.isFinite(Number(score.aggregate_score)) ? Number(score.aggregate_score) : null,
+    descriptionScore: Number.isFinite(Number(score.description_score))
+      ? Number(score.description_score) : null,
+    descriptionRationale: typeof score.description_rationale === "string"
+      ? score.description_rationale : "",
     calculatedAt: score.calculated_at,
     modelVersion: typeof score.model_version === "string" ? score.model_version : "server",
     images: images.map((image) => ({
@@ -30,6 +34,8 @@ export function normalizeServerScore(response) {
       modelVersion: image.model_version || score.model_version || "server",
       analyzedAt: image.analyzed_at || score.calculated_at,
     })),
+    source: "server",
+    serverSynced: true,
   };
 }
 

@@ -7,6 +7,7 @@ const manualResultSummary = document.querySelector("#manual-result-summary");
 const manualResultMeta = document.querySelector("#manual-result-meta");
 const analyzeButton = form.querySelector("button");
 const settingInputs = [...document.querySelectorAll("[data-setting]")];
+const DESCRIPTION_CACHE_PREFIX = "description-assessment:";
 
 async function loadSettings() {
   const response = await chrome.runtime.sendMessage({ kind: "aid:get-settings" });
@@ -59,9 +60,32 @@ async function showResultOnPage(imageUrl, result) {
 
 let scanInProgress = false;
 
-function descriptionAssessmentState(listing) {
+function descriptionFingerprint(description) {
+  return `${description.length}:${description.slice(0, 32)}:${description.slice(-32)}`;
+}
+
+function descriptionRationale(result) {
+  return typeof result?.descriptionRationale === "string"
+    ? result.descriptionRationale
+    : typeof result?.overall_rationale === "string"
+      ? result.overall_rationale
+        .replace(/^\s*AI-writing likelihood:\s*\d+\s*\/\s*100(?:\s*\([^)]*\))?\.\s*/i, "")
+        .trim()
+      : "";
+}
+
+function descriptionAssessmentState(listing, storedScore = null) {
   const description = typeof listing.description === "string" ? listing.description.trim() : "";
   if (!description) return { status: "unavailable", message: "No listing description was available to review." };
+  if (Number.isFinite(Number(storedScore?.descriptionScore))) {
+    return {
+      status: "available",
+      result: {
+        ai_likeness_score: Math.round(Number(storedScore.descriptionScore) * 100),
+        overall_rationale: storedScore.descriptionRationale || "",
+      },
+    };
+  }
   return { status: "pending", message: "Description submitted. Waiting for AI review…" };
 }
 
@@ -69,9 +93,21 @@ function isAuthenticationRequiredError(error) {
   return /sign-in is required for server features/i.test(error?.message || "");
 }
 
-async function requestDescriptionAssessment(listing) {
+async function requestDescriptionAssessment(listing, storedScore = null) {
   const description = typeof listing.description === "string" ? listing.description.trim() : "";
   if (!description) return;
+  if (Number.isFinite(Number(storedScore?.descriptionScore))) {
+    const assessment = descriptionAssessmentState(listing, storedScore);
+    document.dispatchEvent(new CustomEvent("rts:description-assessment", { detail: assessment }));
+    return assessment;
+  }
+  const cacheKey = `${DESCRIPTION_CACHE_PREFIX}${listing.listingId || "unknown"}`;
+  const cached = await chrome.storage.local.get(cacheKey);
+  if (cached[cacheKey]?.fingerprint === descriptionFingerprint(description)) {
+    const assessment = { status: "available", result: cached[cacheKey].result };
+    document.dispatchEvent(new CustomEvent("rts:description-assessment", { detail: assessment }));
+    return assessment;
+  }
   document.dispatchEvent(new CustomEvent("rts:description-assessment", {
     detail: descriptionAssessmentState(listing),
   }));
@@ -91,20 +127,28 @@ async function requestDescriptionAssessment(listing) {
     if (!Number.isFinite(score) || score < 0 || score > 100) {
       throw new Error("AI returned an invalid description assessment");
     }
-    document.dispatchEvent(new CustomEvent("rts:description-assessment", {
-      detail: { status: "available", result: response.result },
-    }));
+    const assessment = { status: "available", result: response.result };
+    await chrome.storage.local.set({
+      [cacheKey]: {
+        fingerprint: descriptionFingerprint(description),
+        result: response.result,
+        cachedAt: new Date().toISOString(),
+      },
+    });
+    document.dispatchEvent(new CustomEvent("rts:description-assessment", { detail: assessment }));
+    return assessment;
   } catch (error) {
     if (isAuthenticationRequiredError(error)) {
       document.dispatchEvent(new CustomEvent("rts:description-assessment", {
         detail: { status: "unavailable", message: "Not available until login." },
       }));
-      return;
+      return { status: "unavailable", message: "Not available until login." };
     }
     document.dispatchEvent(new CustomEvent("rts:description-assessment", {
       detail: { status: "error", message: error.message || "Description review failed" },
     }));
     console.error("Description assessment failed:", error);
+    return { status: "error", message: error.message || "Description review failed" };
   }
 }
 
@@ -145,7 +189,7 @@ async function scanCurrentPage() {
         descriptionAssessment: descriptionAssessmentState(listing),
       }
     }));
-    void requestDescriptionAssessment(listing);
+    const descriptionPromise = requestDescriptionAssessment(listing, listingScore);
 
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
@@ -174,8 +218,51 @@ async function scanCurrentPage() {
         detail: { index: i, item: scoreItems[i], complete: i + 1, total: images.length }
       }));
     }
+    const descriptionAssessment = await descriptionPromise;
+    const descriptionPercent = Number(descriptionAssessment?.result?.ai_likeness_score);
+    const imageScores = scoreItems
+      .map((item) => item.result)
+      .filter((result) => Number.isFinite(Number(result?.score)))
+      .map((result) => Number(result.score))
+      .sort((a, b) => a - b);
+    if (!listingScore && imageScores.length) {
+      const mean = imageScores.reduce((sum, score) => sum + score, 0) / imageScores.length;
+      const position = (imageScores.length - 1) * 0.9;
+      const lower = Math.floor(position);
+      const upper = Math.ceil(position);
+      const highRisk = imageScores[lower] + (imageScores[upper] - imageScores[lower]) * (position - lower);
+      const imageScore = mean * 0.6 + highRisk * 0.4;
+      const descriptionScore = Number.isFinite(descriptionPercent) ? descriptionPercent / 100 : null;
+      const aggregateScore = descriptionScore === null
+        ? imageScore
+        : (imageScore * 0.6 + descriptionScore * 0.15) / 0.75;
+      await chrome.runtime.sendMessage({
+        kind: "aid:submit-score",
+        payload: {
+          platform: "etsy",
+          listingId: listing.listingId,
+          listingUrl: listing.pageUrl,
+          title: listing.title,
+          score: {
+            totalImageScore: imageScore,
+            descriptionScore,
+            aggregateScore,
+            modelVersion: scoreItems.find((item) => item.result)?.result?.modelVersion || "local",
+            scoringVersion: "1",
+            descriptionRationale: descriptionRationale(descriptionAssessment?.result),
+          },
+          images: scoreItems.filter((item) => item.result).map((item) => ({
+            imageHash: item.result.imageId,
+            imageUrl: item.url,
+            aiScore: item.result.score,
+            modelVersion: item.result.modelVersion,
+          })),
+        },
+      }).catch(() => {});
+    }
     document.dispatchEvent(new CustomEvent("rts:analysis", {
-      detail: { type: "listing", title: listing.title || "Current Etsy listing", images: scoreItems, listingScore }
+      detail: { type: "listing", title: listing.title || "Current Etsy listing", images: scoreItems, listingScore,
+        descriptionAssessment }
     }));
   } catch (error) {
     document.dispatchEvent(new CustomEvent("rts:scan-unavailable", {

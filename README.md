@@ -38,7 +38,10 @@ needed by the offscreen inference document.
 2. After every rebuild, click the extension's **Reload** button, then reload
    the Etsy tab itself. Content scripts are injected into a tab only when that
    page loads.
-3. Open the RateThatSlop popup and choose **Scan current Etsy page**.
+3. Open the RateThatSlop popup and choose **Scan current Etsy page** when you
+   want to view the current results. Etsy listing images are also analyzed by
+   the content script in the background, so opening the popup does not restart
+   work that is already cached.
 4. The popup lists each suitable product image it found and its local AI
    likelihood. When a description is available, the Scores view shows that
    the description was submitted while the AI review is in progress, then
@@ -77,6 +80,15 @@ bytes rather than by an image URL. A page scan hashes all candidate images
 and checks those hashes for cached results before starting new local
 inference, so URL changes and service-worker restarts do not force the same
 image to be reprocessed.
+
+Description assessments are cached by listing ID plus a description
+fingerprint. A fresh stored server snapshot is preferred, and its
+`description_score` is converted from the evaluator's 0-100 value to a
+0-1 rating for the combined score. The server stores both that normalized
+score and the cleaned rationale separately, so the rationale does not repeat
+the `10/100` prefix shown in the UI. New background listing results submit
+listing metadata, image hashes/scores, and rating fields once; no image bytes
+are sent.
 
 The extension requests Etsy CDN host access because product images are commonly
 served from `i.etsystatic.com`, not `etsy.com`. Images are fetched by the

@@ -192,7 +192,10 @@ async function serverListing(message) {
   const key = listingKey("etsy", listingId);
   if (!key) return null;
   const cached = await getCachedListing(key);
-  if (cached?.calculatedAt && isFresh(cached.calculatedAt)) return cached;
+  if (!(await getAccessToken())) return null;
+  if (cached?.calculatedAt && isFresh(cached.calculatedAt) && cached.serverSynced) {
+    return cached;
+  }
   if (serverListingInflight.has(key)) return serverListingInflight.get(key);
 
   const request = apiClient.getListingScore("etsy", listingId)
@@ -234,6 +237,110 @@ function compactAiRating(value) {
   return rating;
 }
 
+function descriptionDetails(listing) {
+  return {
+    title: listing?.title || "",
+    price: listing?.price || "",
+    instructions: listing?.instructions || "",
+    attributes: listing?.attributes || "",
+  };
+}
+
+function compactDescriptionAssessment(value) {
+  const score = Number(value?.ai_likeness_score);
+  if (!Number.isInteger(score) || score < 0 || score > 100) return null;
+  return {
+    score: score / 100,
+    percent: score,
+    rationale: typeof value.overall_rationale === "string"
+      ? value.overall_rationale.slice(0, 10000) : "",
+    classification: typeof value.classification === "string"
+      ? value.classification.slice(0, 80) : "",
+  };
+}
+
+function imageAggregate(images) {
+  const scores = images.map((image) => Number(image.aiScore))
+    .filter((score) => Number.isFinite(score) && score >= 0 && score <= 1)
+    .sort((a, b) => a - b);
+  if (!scores.length) return null;
+  const mean = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  const position = (scores.length - 1) * 0.9;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  const highRisk = scores[lower] + (scores[upper] - scores[lower]) * (position - lower);
+  return mean * 0.6 + highRisk * 0.4;
+}
+
+async function syncListingResult(message) {
+  const listing = message?.listing;
+  const listingId = typeof listing?.listingId === "string" ? listing.listingId : "";
+  const images = Array.isArray(message?.images) ? message.images : [];
+  if (!listingId || !images.length) return { ok: true, skipped: "incomplete" };
+  const key = listingKey("etsy", listingId);
+  const existing = key ? await getCachedListing(key) : null;
+  if (existing?.calculatedAt && isFresh(existing.calculatedAt) &&
+      existing.serverSynced && Array.isArray(existing.images) &&
+      existing.images.length >= images.length) {
+    return { ok: true, cached: true, score: existing };
+  }
+  const imageScore = imageAggregate(images);
+  const settings = await getSettings();
+  let description = null;
+  if (isSettingEnabled(settings, "descriptionAiEnabled") && await getAccessToken() &&
+      typeof listing.description === "string" && listing.description.trim()) {
+    try {
+      description = compactDescriptionAssessment(await apiClient.evaluateDescription(
+        listing.description.trim(), descriptionDetails(listing),
+      ));
+    } catch {
+      description = null;
+    }
+  }
+  const aggregateScore = imageScore === null ? null
+    : description ? (imageScore * 0.6 + description.score * 0.15) / 0.75 : imageScore;
+  const localRecord = {
+    overall: aggregateScore,
+    descriptionScore: description?.score ?? null,
+    descriptionRationale: description?.rationale || "",
+    calculatedAt: new Date().toISOString(),
+    modelVersion: images.find((image) => image.modelVersion)?.modelVersion || "local",
+    images: images.map((image) => ({
+      imageId: image.imageId,
+      score: Number(image.aiScore),
+      modelVersion: image.modelVersion || "local",
+      analyzedAt: new Date().toISOString(),
+    })),
+    source: "local",
+    serverSynced: false,
+  };
+  if (key) await cacheListing(key, localRecord);
+  if (!await getAccessToken() || !isSettingEnabled(settings, "serverUploadEnabled")) {
+    return { ok: true, cached: true, score: localRecord };
+  }
+  const response = await apiClient.submitListingScore({
+    platform: "etsy",
+    listingId,
+    listingUrl: listing.pageUrl,
+    title: listing.title,
+    score: {
+      totalImageScore: imageScore,
+      descriptionScore: description?.score ?? null,
+      aggregateScore,
+      modelVersion: localRecord.modelVersion,
+      scoringVersion: "1",
+      descriptionRationale: description?.rationale || "",
+    },
+    images: images.map((image) => ({
+      imageHash: image.imageId,
+      imageUrl: image.url,
+      aiScore: image.aiScore,
+      modelVersion: image.modelVersion,
+    })),
+  });
+  return { ok: true, score: response };
+}
+
 async function scrapePost(message) {
   const post = message?.post;
   const identity = post?.identity;
@@ -245,7 +352,6 @@ async function scrapePost(message) {
 
   const storageKey = `${POST_STORAGE_PREFIX}${listingId}`;
   const existing = await chrome.storage.local.get(storageKey);
-  if (existing[storageKey]) return { ok: true, skipped: "already-scraped" };
 
   const reviewsAndImages = settings.etsyReviewsEnabled
     ? post.reviewsAndImages
@@ -284,6 +390,12 @@ async function scrapePost(message) {
     aiRating: compactAiRating(message.aiRating),
     scrapedAt: new Date().toISOString(),
   };
+  if (existing[storageKey]) {
+    const prior = existing[storageKey];
+    if (prior.descriptionAssessment || prior.imageResults?.length) {
+      return { ok: true, record: prior, skipped: "already-scraped" };
+    }
+  }
   await chrome.storage.local.set({ [storageKey]: record });
   return { ok: true, record };
 }
@@ -349,7 +461,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!isSettingEnabled(settings, "serverUploadEnabled")) {
         throw new Error("server uploads are disabled in settings");
       }
-      return apiClient.submitListingScore(message.payload);
+      return apiClient.submitListingScore(message.payload).then((response) => {
+        const payload = message.payload;
+        const key = listingKey(payload.platform, payload.listingId);
+        if (key) {
+          const score = payload.score || {};
+          const cached = await getCachedListing(key);
+          return cacheListing(key, {
+            ...(cached || {}),
+            serverSynced: true,
+            source: "server",
+          });
+        }
+        return response;
+      });
     })
       .then((score) => sendResponse({ ok: true, score }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
@@ -368,6 +493,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.kind === "aid:scrape-post") {
     scrapePost(message)
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:sync-listing") {
+    syncListingResult(message)
       .then((result) => sendResponse(result))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;

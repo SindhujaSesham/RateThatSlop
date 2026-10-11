@@ -4,7 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const MODEL = "gemini-3.5-flash-lite";
 
-export async function evaluateDescription(description) {
+export async function evaluateDescription(description, listingDetails = {}) {
   if (!description?.trim()) {
     throw new Error("Description must not be empty.");
   }
@@ -142,7 +142,11 @@ Never claim that AI authorship has been established with certainty.
 
 ## DESCRIPTION TO EVALUATE
 
-${description}`,
+${description}
+
+## ADDITIONAL LISTING CONTEXT
+
+${JSON.stringify(listingDetails)}`,
     config: {
       responseMimeType: "application/json",
       temperature: 0,

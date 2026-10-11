@@ -74,8 +74,12 @@ CREATE TABLE IF NOT EXISTS public.score_snapshots (
     model_version TEXT,
     scoring_version TEXT,
 
-    calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    description_rationale TEXT
 );
+
+ALTER TABLE public.score_snapshots
+ADD COLUMN IF NOT EXISTS description_rationale TEXT;
 
 
 -- 5. IMAGE ANALYSES

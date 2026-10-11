@@ -30,6 +30,13 @@ The cache does not store downloaded image bytes or full pasted-image data
 URLs. Page scans hash candidate images and check cached results before
 starting new local inference.
 
+Listing-level results and description assessments are reused from the local
+cache for seven days when available. When signed in and the relevant feature
+switches are enabled, the background listing workflow reads a fresh server
+snapshot before evaluating or submitting anything. A description assessment
+stores a normalized 0-1 score and a separate cleaned rationale; the original
+description text is not stored in the extension cache or score snapshot.
+
 The backend supports authenticated report submission and retrieval, stored
 listing score snapshots, per-image analysis metadata, and description
 evaluation. Automatic description evaluation is enabled by default and can be
