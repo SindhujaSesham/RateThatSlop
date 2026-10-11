@@ -202,11 +202,15 @@ function setImageBadge(img, result) {
   if (!host) return;
   host.querySelector(".ratethatslop-image-badge")?.remove();
   if (getComputedStyle(host).position === "static") host.style.position = "relative";
+  const hostRect = host.getBoundingClientRect();
+  const imageRect = img.getBoundingClientRect();
+  const left = Math.max(8, imageRect.left - hostRect.left + 8);
+  const bottom = Math.max(8, hostRect.bottom - imageRect.bottom + 8);
   const badge = document.createElement("span");
   badge.className = "ratethatslop-image-badge";
   badge.textContent = result?.label === "likely-ai" ? "Likely AI" : "Likely Real";
   badge.style.cssText = [
-    "position:absolute", "top:8px", "left:8px", "z-index:2", "padding:4px 7px",
+    "position:absolute", `bottom:${bottom}px`, `left:${left}px`, "z-index:2", "padding:4px 7px",
     "border-radius:999px", "font:600 11px system-ui,sans-serif", "color:#fff",
     `background:${result?.label === "likely-ai" ? "#b42318" : "#287d3c"}`,
   ].join(";");

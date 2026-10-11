@@ -200,6 +200,12 @@ by default.
 - Badges must use text as well as color, include loading and unavailable
   states, apply to all matching image elements, and make clear that results
   are automated estimates.
+- Image badges belong in the bottom-left of the rendered image. Etsy listing
+  carousel panes can be larger than a centered image, so calculate overlay
+  offsets from the image's rendered bounds relative to its positioned host
+  rather than assuming the host and image have identical dimensions. Avoid
+  the top corners, which Etsy uses for listing and favorite badges, and the
+  bottom-right, which may contain video controls.
 
 ## Build and Test
 
