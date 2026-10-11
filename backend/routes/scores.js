@@ -4,6 +4,33 @@ const requireAuth = require("../middleware/auth");
 
 const router = express.Router();
 
+router.get("/trusted-creator/:username", async (req, res) => {
+    const username = typeof req.params.username === "string"
+        ? decodeURIComponent(req.params.username).trim().slice(0, 500) : "";
+    if (!username) return res.status(400).json({ error: "username is required" });
+
+    try {
+        const { data, error } = await supabase
+            .from("score_snapshots")
+            .select('\"Username\", trusted_creator_score')
+            .ilike("Username", username)
+            .order("trusted_creator_score", { ascending: false, nullsFirst: false })
+            .order("calculated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error) throw error;
+        res.json({
+            checked: true,
+            username: data?.Username || username,
+            trustedCreatorScore: typeof data?.trusted_creator_score === "number"
+                ? data.trusted_creator_score : null,
+        });
+    } catch (error) {
+        console.error("Trusted creator lookup failed:", error.message);
+        res.status(500).json({ error: "Failed to check trusted creator" });
+    }
+});
+
 function readScoreInput(body) {
     const { platform, listingId, listingUrl, title, username, score, images } = body || {};
     if (typeof platform !== "string" || !platform.trim() ||
@@ -92,8 +119,8 @@ router.get("/:platform/:listingId", requireAuth, async (req, res) => {
             const { data, error: trustedError } = await supabase
                 .from("score_snapshots")
                 .select('\"Username\", trusted_creator_score')
-                .eq("pattern_id", pattern.id)
                 .ilike("Username", username)
+                .order("trusted_creator_score", { ascending: false, nullsFirst: false })
                 .order("calculated_at", { ascending: false })
                 .limit(1)
                 .maybeSingle();

@@ -477,6 +477,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
+  if (message?.kind === "aid:get-trusted-creator") {
+    getSettings().then(async (settings) => {
+      if (!isSettingEnabled(settings, "serverInfoEnabled")) {
+        throw new Error("shared server information is disabled in settings");
+      }
+      return apiClient.getTrustedCreator(message.username);
+    })
+      .then((assessment) => sendResponse({ ok: true, assessment }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.kind === "aid:submit-score") {
     getSettings().then(async (settings) => {
       if (!isSettingEnabled(settings, "serverUploadEnabled")) {
