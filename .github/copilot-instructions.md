@@ -34,6 +34,16 @@ by default.
   matching image element, not only the first DOM match.
 - `extension/src/popup/` owns pasted-image analysis, current-page summaries,
   loading/error states, and accessible result display.
+- The popup uses the merged tabbed UI exclusively:
+  `scores-view` for listing scores, `auth-view` for sign-in/sign-up,
+  `manual-view` for one-off image analysis, and `settings-view` for feature
+  toggles. Do not reintroduce the legacy account panel, page-results panel,
+  or legacy result card into `extension/src/popup/index.html` or
+  `extension/src/popup/index.js`.
+- `extension/src/popup/tabs-ui.js` owns the merged authentication and Scores
+  presentation. Route listing scan state through the `rts:analysis-start`,
+  `rts:analysis-progress`, `rts:analysis`, and `rts:scan-unavailable` events
+  rather than rendering results in a second legacy UI.
 - Keep raw image detection separate from listing rating. Detection estimates
   AI likelihood; rating combines image evidence with carefully bounded listing
   signals.
@@ -269,6 +279,19 @@ by default.
 - `extension/src/background/auth.js` owns the stored access-token session and
   expiry handling. Never log credentials or access tokens. Do not make local
   image inference depend on server availability.
+- The merged popup authenticates against the configured Supabase project after
+  checking the deployed RateThatSlop API health endpoint. The production API
+  base URL is
+  `https://rate-my-slop-xzld5.ondigitalocean.app`; do not default the merged
+  login flow to localhost. Scanning and local image inference must continue to
+  work when this server or Supabase is unavailable.
+- `aid:sign-in` and `aid:sign-up` are background message operations. Auth
+  responses must preserve explicit errors, store only the access-token session
+  metadata, and never expose or log passwords, secret keys, or tokens.
+- `backend/server.js` must load `backend/.env` with dotenv for local server
+  execution. `backend/.env` is ignored and must never be committed or copied
+  into the extension; only the Supabase URL and publishable key may be used
+  to generate the extension's public build configuration.
 - `extension/src/background/listing-cache.js` owns local caching of server
   listing records and ratings. Cache keys use `etsy:<numeric-listing-id>`,
   never an image URL or unnormalized page URL. Image-byte hashes identify
@@ -311,7 +334,8 @@ by default.
 - Keep server feature tests in `extension/test/api-client.test.js`,
   `extension/test/auth.test.js`, and
   `extension/test/listing-cache.test.js`.
-- Do not add credentials or tokens to source-controlled configuration. The
-  server base URL may be provided through approved extension deployment
-  configuration (`serverBaseUrl`); backend secrets remain in environment
-  configuration.
+- Do not add credentials or tokens to source-controlled configuration. Backend
+  secrets remain in the ignored `backend/.env`; use
+  `backend/.env.example` for placeholders only. The extension may contain the
+  deployed public API URL and Supabase publishable key, but never a Supabase
+  secret key, Gemini key, password, or access token.
