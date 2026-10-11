@@ -2,13 +2,13 @@
 // Authentication is NOT connected to Supabase yet.
 import { showView } from "./navigation.js";
 
+
 const $ = (selector) => document.querySelector(selector);
 const scoresEmpty = $("#scores-empty");
 const scoresData = $("#scores-data");
 const scoresImages = $("#scores-images");
 const scoresHeading = $("#scores-heading");
-const scoresSummary = $("#scores-summary");
-const descriptionAssessment = $("#scores-description-assessment");
+//const scoresSummary = $("#scores-summary");
 
 const retryButton = $("#scores-retry");
 retryButton.addEventListener("click", () => {
@@ -48,16 +48,33 @@ function createScoreCard(item, index) {
   return card;
 }
 
+// Same image-only aggregation formula as background/rating.js:
+// 60% mean score + 40% 90th-percentile score.
+// Kept in the popup to avoid a background-module import stopping the UI.
 function updateScoreSummary() {
-  const successful = currentImages.filter((item) =>
-    item.result && Number.isFinite(Number(item.result.score))
-  ).length;
-  const completed = currentImages.filter((item) => item.status !== "Analyzing…").length;
-  const storedRating = currentListingScore
-    ? ` · Stored listing rating ${(Number(currentListingScore.overall) * 100).toFixed(1)}%`
-    : "";
-  scoresSummary.textContent =
-    `${successful} of ${currentImages.length} images scored · ${completed} processed${storedRating}`;
+  const scores = currentImages
+    .map((item) => item?.result?.score)
+    .filter((score) =>
+      typeof score === "number" &&
+      Number.isFinite(score) &&
+      score >= 0 && score <= 1
+    )
+    .sort((a, b) => a - b);
+
+  if (scores.length === 0) {
+    scoresHeading.textContent = "—";
+    return;
+  }
+
+  const mean = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  const position = (scores.length - 1) * 0.90;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  const highRisk = scores[lower] +
+    (scores[upper] - scores[lower]) * (position - lower);
+  const aggregate = mean * 0.60 + highRisk * 0.40;
+
+  scoresHeading.textContent = `${(aggregate * 100).toFixed(1)}%`;
 }
 
 document.addEventListener("rts:analysis-start", (event) => {
@@ -65,8 +82,7 @@ document.addEventListener("rts:analysis-start", (event) => {
   currentListingScore = event.detail.listingScore || null;
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
-  scoresHeading.textContent = event.detail.title;
-  renderDescriptionAssessment(event.detail.descriptionAssessment);
+  //scoresHeading.textContent = event.detail.title;
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
   updateScoreSummary();
 });
@@ -115,7 +131,7 @@ document.addEventListener("rts:analysis", (event) => {
   currentListingScore = event.detail.listingScore || null;
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
-  scoresHeading.textContent = event.detail.title;
+  //scoresHeading.textContent = event.detail.title;
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
   updateScoreSummary();
 });
@@ -125,6 +141,7 @@ const authForm = $("#auth-form");
 const authHeading = $("#auth-heading");
 const authSubmit = $("#auth-submit");
 const authSwitch = $("#auth-switch");
+const authSignOut = $("#auth-sign-out");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
 const settingsNote = $("#settings-note");
@@ -162,8 +179,10 @@ async function loadAuthState() {
     authSubmit.textContent = "Signed in";
     authSubmit.disabled = true;
     authSwitch.hidden = true;
+    authSignOut.hidden = false;
     setSettingsEnabled(true);
   } else {
+    authSignOut.hidden = true;
     setSettingsEnabled(false);
   }
 }
@@ -175,6 +194,16 @@ function updateAuthMode() {
   authSwitch.textContent = registering ? "Already have an account? Log in" : "Need an account? Sign up";
   password.autocomplete = registering ? "new-password" : "current-password";
   authFeedback.textContent = "";
+}
+
+function showSignedOutState() {
+  authMode = "login";
+  authForm.reset();
+  authSignOut.hidden = true;
+  authSignOut.disabled = false;
+  authSubmit.disabled = false;
+  authSwitch.hidden = false;
+  updateAuthMode();
 }
 
 authSwitch.addEventListener("click", () => {
@@ -202,12 +231,28 @@ authForm.addEventListener("submit", (event) => {
       authFeedback.textContent = `Signed in as ${response.user?.email || email}.`;
       authSubmit.textContent = "Signed in";
       authSwitch.hidden = true;
+      authSignOut.hidden = false;
       setSettingsEnabled(true);
     })
     .catch((error) => {
       authFeedback.textContent = error.message;
       authSubmit.disabled = false;
     });
+});
+
+authSignOut.addEventListener("click", async () => {
+  authSignOut.disabled = true;
+  authFeedback.textContent = "Signing out…";
+  try {
+    const response = await sendBackgroundMessage({ kind: "aid:sign-out" });
+    if (!response?.ok) throw new Error(response?.error || "Could not sign out.");
+    showSignedOutState();
+    authFeedback.textContent = "Signed out.";
+    setSettingsEnabled(false);
+  } catch (error) {
+    authFeedback.textContent = error.message;
+    authSignOut.disabled = false;
+  }
 });
 
 document.querySelectorAll("[data-setting]").forEach((control) => {
