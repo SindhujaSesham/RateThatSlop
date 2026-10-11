@@ -123,6 +123,7 @@ function collectPageData(doc = document, location = window.location) {
       ]).replace(/^price:\s*/i, ""),
       listingId: getListingId(doc, location),
       pageUrl: location.href,
+      ...scrapeProductInformation(doc),
     },
   };
 }
@@ -339,6 +340,21 @@ async function analyzePageImages(data) {
       } finally {
         inFlightImages.delete(image.url);
       }
+    }
+    if (isListingPage() && data.listing.listingId) {
+      chrome.runtime.sendMessage({
+        kind: "aid:sync-listing",
+        listing: data.listing,
+        images: [...analyzedResults.entries()]
+          .filter(([url]) => data.listing.images.some((image) => image.url === url))
+          .map(([url, result]) => ({ url, imageId: result.imageId, aiScore: result.score, modelVersion: result.modelVersion })),
+      }).then((response) => {
+        if (response?.ok === false) {
+          console.warn("RateThatSlop could not sync listing:", response.error);
+        }
+      }).catch((error) => {
+        console.warn("RateThatSlop could not sync listing:", error);
+      });
     }
   })().finally(() => {
     pageScanPromise = null;

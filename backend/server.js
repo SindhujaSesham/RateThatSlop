@@ -1,5 +1,6 @@
 // Start the server
 
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
@@ -15,6 +16,8 @@ const healthRoutes = require("./routes/health");
 const userRoutes = require("./routes/users");
 const descriptionRoutes = require("./routes/descriptions");
 const reviewRoutes = require("./routes/reviews");
+const diagnosticsRoutes = require("./routes/diagnostics");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -61,6 +64,8 @@ app.get("/api/me", requireAuth, (req, res) => {
 });
 
 // Pattern-related routes
+app.use("/api", healthRoutes);
+app.use("/api", userRoutes);
 app.use("/api/patterns", patternRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/scores", scoreRoutes);
@@ -114,6 +119,8 @@ app.post("/api/evaluate-description", async (req, res) => {
         });
     }
 });
+app.use("/api/evaluate-description", descriptionRoutes);
+app.use("/api/diagnostics", diagnosticsRoutes);
 
 // ============================================
 // Gemini Review Evaluation Endpoint

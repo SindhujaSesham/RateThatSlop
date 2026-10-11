@@ -1,4 +1,5 @@
 import { getAccessToken } from "./auth.js";
+import { writeDiagnostic } from "./diagnostics.js";
 
 const SERVER_URL_KEY = "serverBaseUrl";
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -26,6 +27,7 @@ export function createApiClient({
   }
 
   async function request(path, options = {}) {
+    const method = options.method || "GET";
     const token = await getToken();
     if (!token) throw new Error("sign-in is required for server features");
     const controller = new AbortController();
@@ -48,11 +50,19 @@ export function createApiClient({
         throw new Error("server returned invalid JSON");
       }
       if (!response.ok) {
+        await writeDiagnostic("server-request-failed", {
+          method,
+          path,
+          status: response.status,
+          error: typeof body.error === "string" ? body.error : "unknown server error",
+        });
         throw new Error(typeof body.error === "string" ? body.error : `server request failed (${response.status})`);
       }
+      await writeDiagnostic("server-request-succeeded", { method, path, status: response.status });
       return validateObject(body, "server");
     } catch (error) {
       if (error.name === "AbortError") throw new Error("server request timed out");
+      await writeDiagnostic("server-request-error", { method, path, error: error.message });
       throw error;
     } finally {
       clearTimeout(timeout);
@@ -67,7 +77,7 @@ export function createApiClient({
       return request("/api/scores", { method: "POST", body: JSON.stringify(payload) });
     },
     evaluateDescription(description, listingDetails = {}) {
-      return request("/api/descriptions/evaluate", {
+      return request("/api/evaluate-description", {
         method: "POST",
         body: JSON.stringify({ description, listingDetails }),
       });
@@ -83,6 +93,9 @@ export function createApiClient({
     },
     submitUserReview(payload) {
       return request("/api/reports", { method: "POST", body: JSON.stringify(payload) });
+    },
+    runDiagnostics() {
+      return request("/api/diagnostics");
     },
   };
 }

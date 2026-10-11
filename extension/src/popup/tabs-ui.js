@@ -8,6 +8,7 @@ const scoresEmpty = $("#scores-empty");
 const scoresData = $("#scores-data");
 const scoresImages = $("#scores-images");
 const scoresHeading = $("#scores-heading");
+const descriptionAssessment = $("#scores-description-assessment");
 //const scoresSummary = $("#scores-summary");
 
 const retryButton = $("#scores-retry");
@@ -82,9 +83,42 @@ document.addEventListener("rts:analysis-start", (event) => {
   currentListingScore = event.detail.listingScore || null;
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
+  renderDescriptionAssessment(event.detail.descriptionAssessment);
   //scoresHeading.textContent = event.detail.title;
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
   updateScoreSummary();
+});
+
+function renderDescriptionAssessment(assessment) {
+  if (!descriptionAssessment || !assessment) return;
+  if (assessment.status === "pending") {
+    descriptionAssessment.textContent = assessment.message;
+    return;
+  }
+  if (assessment.status === "error") {
+    descriptionAssessment.textContent = `Description review failed: ${assessment.message}`;
+    return;
+  }
+  if (assessment.status !== "available") {
+    descriptionAssessment.textContent = assessment.message || "No listing description was available to review.";
+    return;
+  }
+  const result = assessment.result || {};
+  const score = Number(result.ai_likeness_score);
+  const classification = typeof result.classification === "string"
+    ? result.classification
+    : "assessment complete";
+  const rawRationale = typeof result.descriptionRationale === "string"
+    ? result.descriptionRationale : result.overall_rationale;
+  const rationale = typeof rawRationale === "string"
+    ? ` ${rawRationale.replace(/^\s*AI-writing likelihood:\s*\d+\s*\/\s*100(?:\s*\([^)]*\))?\.\s*/i, "").trim()}`
+    : "";
+  descriptionAssessment.textContent =
+    `AI-writing likelihood: ${score.toFixed(0)}/100 (${classification}).${rationale}`;
+}
+
+document.addEventListener("rts:description-assessment", (event) => {
+  renderDescriptionAssessment(event.detail);
 });
 
 document.addEventListener("rts:analysis-progress", (event) => {
@@ -111,11 +145,14 @@ const authForm = $("#auth-form");
 const authHeading = $("#auth-heading");
 const authSubmit = $("#auth-submit");
 const authSwitch = $("#auth-switch");
+const authSignOut = $("#auth-sign-out");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
 const settingsNote = $("#settings-note");
 // TEMP: Use http://localhost:3000 here when testing the local backend.
 const apiServerUrl = "https://rate-my-slop-xzld5.ondigitalocean.app";
+const diagnosticOutput = $("#diagnostic-output");
+const deployedServerUrl = "https://rate-my-slop-xzld5.ondigitalocean.app";
 
 function sendBackgroundMessage(message) {
   return chrome.runtime.sendMessage(message);
@@ -125,6 +162,33 @@ function setSettingsEnabled(enabled) {
   document.querySelectorAll("[data-setting]").forEach((control) => {
     control.disabled = !enabled;
     control.closest(".setting-row")?.classList.toggle("locked", !enabled);
+  });
+
+  $("#server-check").addEventListener("click", async () => {
+    diagnosticOutput.hidden = false;
+    diagnosticOutput.textContent = "Running authenticated server checks…";
+    const response = await sendBackgroundMessage({ kind: "aid:run-server-diagnostics" });
+    diagnosticOutput.textContent = response?.ok
+      ? JSON.stringify(response.diagnostics, null, 2)
+      : `Server checks failed: ${response?.error || "unknown error"}`;
+  });
+
+  $("#view-logs").addEventListener("click", async () => {
+    diagnosticOutput.hidden = false;
+    const response = await sendBackgroundMessage({ kind: "aid:get-diagnostics" });
+    diagnosticOutput.textContent = response?.ok && response.logs.length
+      ? response.logs.map((entry) =>
+        `[${entry.at}] ${entry.event} ${entry.details ? JSON.stringify(entry.details) : ""}`,
+      ).join("\n")
+      : response?.ok ? "No diagnostic logs." : `Could not read logs: ${response?.error || "unknown error"}`;
+  });
+
+  $("#clear-cache").addEventListener("click", async () => {
+    const response = await sendBackgroundMessage({ kind: "aid:clear-cache" });
+    diagnosticOutput.hidden = false;
+    diagnosticOutput.textContent = response?.ok
+      ? `Cleared ${response.removed} local cache entries and diagnostic logs.`
+      : `Could not clear cache: ${response?.error || "unknown error"}`;
   });
   settingsNote.textContent = enabled
     ? "Settings are available for this signed-in session."
@@ -149,8 +213,11 @@ async function loadAuthState() {
     authSubmit.textContent = "Signed in";
     authSubmit.disabled = true;
     authSwitch.hidden = true;
+    authSignOut.hidden = false;
     setSettingsEnabled(true);
+    document.dispatchEvent(new Event("rts:scan-requested"));
   } else {
+    authSignOut.hidden = true;
     setSettingsEnabled(false);
   }
 }
@@ -162,6 +229,16 @@ function updateAuthMode() {
   authSwitch.textContent = registering ? "Already have an account? Log in" : "Need an account? Sign up";
   password.autocomplete = registering ? "new-password" : "current-password";
   authFeedback.textContent = "";
+}
+
+function showSignedOutState() {
+  authMode = "login";
+  authForm.reset();
+  authSignOut.hidden = true;
+  authSignOut.disabled = false;
+  authSubmit.disabled = false;
+  authSwitch.hidden = false;
+  updateAuthMode();
 }
 
 authSwitch.addEventListener("click", () => {
@@ -189,12 +266,28 @@ authForm.addEventListener("submit", (event) => {
       authFeedback.textContent = `Signed in as ${response.user?.email || email}.`;
       authSubmit.textContent = "Signed in";
       authSwitch.hidden = true;
+      authSignOut.hidden = false;
       setSettingsEnabled(true);
     })
     .catch((error) => {
       authFeedback.textContent = error.message;
       authSubmit.disabled = false;
     });
+});
+
+authSignOut.addEventListener("click", async () => {
+  authSignOut.disabled = true;
+  authFeedback.textContent = "Signing out…";
+  try {
+    const response = await sendBackgroundMessage({ kind: "aid:sign-out" });
+    if (!response?.ok) throw new Error(response?.error || "Could not sign out.");
+    showSignedOutState();
+    authFeedback.textContent = "Signed out.";
+    setSettingsEnabled(false);
+  } catch (error) {
+    authFeedback.textContent = error.message;
+    authSignOut.disabled = false;
+  }
 });
 
 document.querySelectorAll("[data-setting]").forEach((control) => {

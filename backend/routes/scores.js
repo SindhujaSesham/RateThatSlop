@@ -67,7 +67,7 @@ router.get("/:platform/:listingId", requireAuth, async (req, res) => {
 
         const { data: snapshot, error: snapshotError } = await supabase
             .from("score_snapshots")
-            .select("id, total_image_score, description_score, user_reports_score, etsy_review_score, trusted_creator_score, aggregate_score, model_version, scoring_version, calculated_at")
+            .select("id, total_image_score, description_score, user_reports_score, etsy_review_score, trusted_creator_score, aggregate_score, model_version, scoring_version, calculated_at, description_rationale")
             .eq("pattern_id", pattern.id)
             .order("calculated_at", { ascending: false })
             .limit(1)
@@ -131,12 +131,14 @@ router.post("/", requireAuth, async (req, res) => {
                 etsy_review_score: input.score.etsyReviewScore ?? null,
                 trusted_creator_score: input.score.trustedCreatorScore ?? null,
                 aggregate_score: input.score.aggregateScore ?? null,
+                description_rationale: typeof input.score.descriptionRationale === "string"
+                    ? input.score.descriptionRationale.slice(0, 10000) : null,
                 model_version: typeof input.score.modelVersion === "string"
                     ? input.score.modelVersion.slice(0, 80) : null,
                 scoring_version: typeof input.score.scoringVersion === "string"
                     ? input.score.scoringVersion.slice(0, 80) : null
             })
-            .select("id, aggregate_score, model_version, scoring_version, calculated_at")
+            .select("id, aggregate_score, description_score, description_rationale, model_version, scoring_version, calculated_at")
             .single();
         if (snapshotError) throw snapshotError;
 

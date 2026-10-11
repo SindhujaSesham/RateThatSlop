@@ -5,6 +5,7 @@
   "description": "Detects potentially AI-generated sewing-pattern listing images locally in the browser.",
   "permissions": [
     "activeTab",
+    "scripting",
     "contextMenus",
     "storage",
     "offscreen"

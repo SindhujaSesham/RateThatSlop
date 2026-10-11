@@ -81,7 +81,9 @@
             <h3>Seller assessment</h3>
             <p>Not available yet.</p>
             <h3>Description assessment</h3>
-            <p>Not available yet.</p>
+            <p id="scores-description-assessment" role="status" aria-live="polite">
+              Not available yet.
+            </p>
             <h3>Community report score</h3>
             <p>Not available yet. Reports will require an account.</p>
             <button id="scores-report-login" class="small-action" type="button">Log in to submit a report</button>
@@ -100,6 +102,7 @@
             <button id="auth-submit" class="small-action" type="submit">Log in</button>
           </form>
           <button id="auth-switch" class="text-action" type="button">Need an account? Sign up</button>
+          <button id="auth-sign-out" class="small-action" type="button" hidden>Sign out</button>
           <p id="auth-feedback" class="tab-help" role="status" aria-live="polite"></p>
         </section>
 
@@ -179,24 +182,28 @@
 
         <section id="settings-view" class="popup-view" hidden>
           <h2>Feature settings</h2>
-          <p class="tab-help">Sign in to unlock all settings. Controls remain disabled until authentication is
-            connected.</p>
+          <p class="tab-help">Sign in to unlock server features and diagnostics.</p>
           <div class="setting-list">
             <label class="setting-row locked"><span>Scrape Etsy listings</span><input type="checkbox" role="switch"
-                data-setting="scrapeListings" disabled></label>
+                data-setting="scrapingEnabled" disabled></label>
             <label class="setting-row locked"><span>Upload scores to server</span><input type="checkbox" role="switch"
-                data-setting="uploadScores" disabled></label>
+                data-setting="serverUploadEnabled" disabled></label>
             <label class="setting-row locked"><span>Use shared server information</span><input type="checkbox"
-                role="switch" data-setting="sharedInfo" disabled></label>
+                role="switch" data-setting="serverInfoEnabled" disabled></label>
             <label class="setting-row locked"><span>AI-test descriptions</span><input type="checkbox" role="switch"
-                data-setting="aiDescriptions" disabled></label>
+                data-setting="descriptionAiEnabled" disabled></label>
             <label class="setting-row locked"><span>Use user reports</span><input type="checkbox" role="switch"
-                data-setting="userReports" disabled></label>
+                data-setting="userReviewsEnabled" disabled></label>
             <label class="setting-row locked"><span>Use Etsy reviews</span><input type="checkbox" role="switch"
-                data-setting="etsyReviews" disabled></label>
+                data-setting="etsyReviewsEnabled" disabled></label>
           </div>
-          <p id="settings-note" class="tab-help" role="status">Log in to unlock settings. Authentication will be
-            connected in the next step.</p>
+          <p id="settings-note" class="tab-help" role="status">Log in to unlock settings.</p>
+          <div class="settings-actions">
+            <button id="server-check" class="small-action" type="button">Run server checks</button>
+            <button id="view-logs" class="small-action" type="button">View logs</button>
+            <button id="clear-cache" class="small-action" type="button">Clear local cache</button>
+          </div>
+          <pre id="diagnostic-output" class="diagnostic-output" hidden aria-live="polite"></pre>
         </section>
       </main>
     </div>

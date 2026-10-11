@@ -21,9 +21,11 @@ npm run build
 
 The extension build reads only `SUPABASE_URL` and
 `SUPABASE_PUBLISHABLE_KEY` from `backend/.env` and writes them to a
-gitignored generated module. `SUPABASE_KEY` is never read by the extension
-build. The popup asks only for the API server URL; for a hosted HTTPS API,
-Chrome requests permission for that origin when you sign in.
+gitignored generated config, using the bundled public project config when
+either value is absent. The extension also uses that bundled config if the
+generated file is missing in a packaged copy. `SUPABASE_KEY` is never read by
+the extension build. The popup asks only for the API server URL; for a hosted
+HTTPS API, Chrome requests permission for that origin when you sign in.
 
 The tests cover Etsy host validation, image deduplication/filtering, and
 listing metadata extraction. The build vendors the local ONNX Runtime files
@@ -36,9 +38,17 @@ needed by the offscreen inference document.
 2. After every rebuild, click the extension's **Reload** button, then reload
    the Etsy tab itself. Content scripts are injected into a tab only when that
    page loads.
-3. Open the RateThatSlop popup and choose **Scan current Etsy page**.
+3. Open the RateThatSlop popup and choose **Scan current Etsy page** when you
+   want to view the current results. Etsy listing images are also analyzed by
+   the content script in the background, so opening the popup does not restart
+   work that is already cached.
 4. The popup lists each suitable product image it found and its local AI
-   likelihood. Direct image URLs can still be analyzed individually.
+   likelihood. When a description is available, the Scores view shows that
+   the description was submitted while the AI review is in progress, then
+   shows the returned AI-writing likelihood and classification. If the
+   server or model is unavailable, the view reports that failure instead of
+   displaying a misleading score. Direct image URLs can still be analyzed
+   individually.
 
 The scraper deduplicates image URLs, ignores common avatars/icons/logos, caps
 scans at 100 images, and extracts title, seller, price, and page URL when the
@@ -71,6 +81,15 @@ and checks those hashes for cached results before starting new local
 inference, so URL changes and service-worker restarts do not force the same
 image to be reprocessed.
 
+Description assessments are cached by listing ID plus a description
+fingerprint. A fresh stored server snapshot is preferred, and its
+`description_score` is converted from the evaluator's 0-100 value to a
+0-1 rating for the combined score. The server stores both that normalized
+score and the cleaned rationale separately, so the rationale does not repeat
+the `10/100` prefix shown in the UI. New background listing results submit
+listing metadata, image hashes/scores, and rating fields once; no image bytes
+are sent.
+
 The extension requests Etsy CDN host access because product images are commonly
 served from `i.etsystatic.com`, not `etsy.com`. Images are fetched by the
 local offscreen inference document and are not uploaded to a remote service.
@@ -90,7 +109,8 @@ See [`PRIVACY.md`](./PRIVACY.md) for the data flow and limitations.
 ## Backend API
 
 The server implementation is in [`backend/`](./backend/). Start it from that
-directory after configuring `SUPABASE_URL` and `SUPABASE_KEY` in
+directory after configuring `SUPABASE_URL` and the **Supabase `service_role`
+key** in `SUPABASE_SERVICE_ROLE_KEY` (or the legacy `SUPABASE_KEY`) in
 `.env`:
 
 ```powershell
@@ -117,3 +137,9 @@ Routes are grouped by responsibility:
 Report submissions create the listing record when necessary and upsert one
 report per authenticated user and listing. Report and score endpoints never
 accept or upload image bytes.
+
+The authenticated `GET /api/diagnostics` endpoint checks database access for
+all application tables and verifies that the signed-in user has a profile row.
+The extension Settings tab exposes this check, bounded client-side request
+logs, and a local cache clear action. Diagnostic logs contain request metadata
+and error messages only; image bytes and access tokens are never stored.
