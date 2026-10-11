@@ -7,7 +7,20 @@ const SESSION_KEY = "serverSession";
 const AUTH_TIMEOUT_MS = 12000;
 
 async function authConfig() {
-  const response = await fetch(chrome.runtime.getURL("src/background/build-config.json"));
+  //const response = await fetch(chrome.runtime.getURL("src/background/build-config.json"));
+  const url = chrome.runtime.getURL("src/background/build-config.json");
+
+console.log("Trying to fetch:", url);
+
+let response;
+
+try {
+    response = await fetch(url);
+    console.log("Fetch status:", response.status);
+} catch (error) {
+    console.error("FETCH FAILED AT AUTH.JS:", error);
+    throw error;
+}
   let builtConfig = {};
   if (response.ok) {
     builtConfig = await response.json();
