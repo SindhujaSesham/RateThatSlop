@@ -232,12 +232,7 @@ async function loadAuthState() {
   const response = await sendBackgroundMessage({ kind: "aid:get-auth-state" });
   if (!response?.ok) throw new Error(response.error || "Could not read sign-in state.");
   if (response.user) {
-    authFeedback.textContent = `Signed in as ${response.user.email || "account"}.`;
-    authSubmit.textContent = "Signed in";
-    authSubmit.disabled = true;
-    authSwitch.hidden = true;
-    authSignOut.hidden = false;
-    setSettingsEnabled(true);
+    showSignedInState(response.user.email);
     document.dispatchEvent(new Event("rts:scan-requested"));
   } else {
     showSignedOutState();
@@ -303,11 +298,7 @@ authForm.addEventListener("submit", (event) => {
         authSubmit.disabled = false;
         return;
       }
-      authFeedback.textContent = `Signed in as ${response.user?.email || email}.`;
-      authSubmit.textContent = "Signed in";
-      authSwitch.hidden = true;
-      authSignOut.hidden = false;
-      setSettingsEnabled(true);
+      showSignedInState(response.user?.email || email);
       document.dispatchEvent(new Event("rts:scan-requested"));
     })
     .catch((error) => {
