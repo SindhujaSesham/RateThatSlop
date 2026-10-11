@@ -1,3 +1,5 @@
+import { lookupTrustedCreator } from "../background/trusted-creators.js";
+
 const form = document.querySelector("#analyze-form");
 const urlInput = document.querySelector("#image-url");
 const manualFeedback = document.querySelector("#manual-feedback");
@@ -89,19 +91,42 @@ function descriptionRationale(result) {
       : "";
 }
 
+function hasDescriptionScore(value) {
+  const score = value?.descriptionScore;
+  return typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 1;
+}
+
+function hasDescriptionAssessmentScore(value) {
+  const score = value?.ai_likeness_score;
+  return typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 100;
+}
+
 function descriptionAssessmentState(listing, storedScore = null) {
   const description = typeof listing.description === "string" ? listing.description.trim() : "";
   if (!description) return { status: "unavailable", message: "No listing description was available to review." };
-  if (Number.isFinite(Number(storedScore?.descriptionScore))) {
+  if (hasDescriptionScore(storedScore)) {
     return {
       status: "available",
       result: {
-        ai_likeness_score: Math.round(Number(storedScore.descriptionScore) * 100),
+        ai_likeness_score: Math.round(storedScore.descriptionScore * 100),
         overall_rationale: storedScore.descriptionRationale || "",
       },
     };
   }
   return { status: "pending", message: "Description submitted. Waiting for AI review…" };
+}
+
+function requestSellerAssessment(listing, serverResponse) {
+  const score = serverResponse?.score;
+  const assessment = lookupTrustedCreator({
+    serverChecked: serverResponse?.ok === true && serverResponse.available === true,
+    username: score?.Username ?? score?.username,
+    trustedCreatorScore: score?.trusted_creator_score ?? score?.trustedCreatorScore,
+  }, listing.seller);
+  document.dispatchEvent(new CustomEvent("rts:seller-assessment", {
+    detail: assessment,
+  }));
+  return assessment;
 }
 
 function isAuthenticationRequiredError(error) {
@@ -111,18 +136,21 @@ function isAuthenticationRequiredError(error) {
 async function requestDescriptionAssessment(listing, storedScore = null) {
   const description = typeof listing.description === "string" ? listing.description.trim() : "";
   if (!description) return;
-  if (Number.isFinite(Number(storedScore?.descriptionScore))) {
+  if (hasDescriptionScore(storedScore)) {
     const assessment = descriptionAssessmentState(listing, storedScore);
     document.dispatchEvent(new CustomEvent("rts:description-assessment", { detail: assessment }));
     return assessment;
   }
+
   const cacheKey = `${DESCRIPTION_CACHE_PREFIX}${listing.listingId || "unknown"}`;
   const cached = await chrome.storage.local.get(cacheKey);
-  if (cached[cacheKey]?.fingerprint === descriptionFingerprint(description)) {
+  if (cached[cacheKey]?.fingerprint === descriptionFingerprint(description) &&
+      hasDescriptionAssessmentScore(cached[cacheKey]?.result)) {
     const assessment = { status: "available", result: cached[cacheKey].result };
     document.dispatchEvent(new CustomEvent("rts:description-assessment", { detail: assessment }));
     return assessment;
   }
+  if (cached[cacheKey]) await chrome.storage.local.remove(cacheKey);
   document.dispatchEvent(new CustomEvent("rts:description-assessment", {
     detail: descriptionAssessmentState(listing),
   }));
@@ -180,9 +208,10 @@ async function scanCurrentPage() {
       ? await chrome.runtime.sendMessage({
         kind: "aid:get-listing-score",
         listingId: listing.listingId,
+        username: listing.seller,
       })
       : null;
-    const listingScore = storedScore?.ok && storedScore.available && storedScore.score?.overall !== null
+    const listingScore = storedScore?.ok && storedScore.available && storedScore.score
       ? storedScore.score
       : null;
     if (!images.length) {
@@ -202,9 +231,11 @@ async function scanCurrentPage() {
         images: scoreItems,
         listingScore,
         descriptionAssessment: descriptionAssessmentState(listing),
+        sellerAssessment: { status: "pending", message: "Checking trusted creator status…" },
       }
     }));
     const descriptionPromise = requestDescriptionAssessment(listing, listingScore);
+    const sellerPromise = requestSellerAssessment(listing, storedScore);
 
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
@@ -214,6 +245,7 @@ async function scanCurrentPage() {
         const response = await chrome.runtime.sendMessage({
           kind: "aid:analyze",
           imageUrl: image.url,
+          force: forceRefresh,
           meta: listing,
         });
         if (!response?.ok) throw new Error(response?.error || "Analysis failed");
@@ -234,20 +266,29 @@ async function scanCurrentPage() {
       }));
     }
     const descriptionAssessment = await descriptionPromise;
-    const descriptionPercent = Number(descriptionAssessment?.result?.ai_likeness_score);
+    const sellerAssessment = await sellerPromise;
+    const descriptionPercent = hasDescriptionAssessmentScore(descriptionAssessment?.result)
+      ? descriptionAssessment.result.ai_likeness_score
+      : null;
     const imageScores = scoreItems
       .map((item) => item.result)
       .filter((result) => Number.isFinite(Number(result?.score)))
       .map((result) => Number(result.score))
       .sort((a, b) => a - b);
-    if (!listingScore && imageScores.length) {
+    const needsDescriptionRetry = Boolean(
+      listingScore &&
+      listingScore.descriptionScore === null &&
+      descriptionAssessment?.status === "available",
+    );
+    const needsListingScoreRetry = !listingScore || listingScore.overall === null;
+    if ((forceRefresh || needsListingScoreRetry || needsDescriptionRetry) && imageScores.length) {
       const mean = imageScores.reduce((sum, score) => sum + score, 0) / imageScores.length;
       const position = (imageScores.length - 1) * 0.9;
       const lower = Math.floor(position);
       const upper = Math.ceil(position);
       const highRisk = imageScores[lower] + (imageScores[upper] - imageScores[lower]) * (position - lower);
       const imageScore = mean * 0.6 + highRisk * 0.4;
-      const descriptionScore = Number.isFinite(descriptionPercent) ? descriptionPercent / 100 : null;
+      const descriptionScore = descriptionPercent === null ? null : descriptionPercent / 100;
       const aggregateScore = descriptionScore === null
         ? imageScore
         : (imageScore * 0.6 + descriptionScore * 0.15) / 0.75;
@@ -258,6 +299,7 @@ async function scanCurrentPage() {
           listingId: listing.listingId,
           listingUrl: listing.pageUrl,
           title: listing.title,
+          username: listing.seller,
           score: {
             totalImageScore: imageScore,
             descriptionScore,
@@ -286,7 +328,7 @@ async function scanCurrentPage() {
     }
     document.dispatchEvent(new CustomEvent("rts:analysis", {
       detail: { type: "listing", title: listing.title || "Current Etsy listing", images: scoreItems, listingScore,
-        descriptionAssessment }
+        descriptionAssessment, sellerAssessment }
     }));
   } catch (error) {
     document.dispatchEvent(new CustomEvent("rts:scan-unavailable", {

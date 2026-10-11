@@ -5,7 +5,7 @@ const requireAuth = require("../middleware/auth");
 const router = express.Router();
 
 function readScoreInput(body) {
-    const { platform, listingId, listingUrl, title, score, images } = body || {};
+    const { platform, listingId, listingUrl, title, username, score, images } = body || {};
     if (typeof platform !== "string" || !platform.trim() ||
         typeof listingId !== "string" || !listingId.trim() ||
         !score || typeof score !== "object" || Array.isArray(score) ||
@@ -43,6 +43,7 @@ function readScoreInput(body) {
             listingId: listingId.trim(),
             listingUrl: typeof listingUrl === "string" ? listingUrl.slice(0, 2000) : null,
             title: typeof title === "string" ? title.slice(0, 500) : null,
+            username: typeof username === "string" ? username.trim().slice(0, 500) : null,
             score,
             images: validImages
         }
@@ -51,6 +52,8 @@ function readScoreInput(body) {
 
 router.get("/:platform/:listingId", requireAuth, async (req, res) => {
     const { platform, listingId } = req.params;
+    const username = typeof req.query.username === "string"
+        ? req.query.username.trim().slice(0, 500) : "";
 
     try {
         const { data: pattern, error: patternError } = await supabase
@@ -70,7 +73,7 @@ router.get("/:platform/:listingId", requireAuth, async (req, res) => {
 
         const { data: snapshot, error: snapshotError } = await supabase
             .from("score_snapshots")
-            .select("id, total_image_score, description_score, user_reports_score, etsy_review_score, trusted_creator_score, aggregate_score, model_version, scoring_version, calculated_at, description_rationale")
+            .select('id, "Username", total_image_score, description_score, user_reports_score, etsy_review_score, trusted_creator_score, aggregate_score, model_version, scoring_version, calculated_at, description_rationale')
             .eq("pattern_id", pattern.id)
             .order("calculated_at", { ascending: false })
             .limit(1)
@@ -82,6 +85,20 @@ router.get("/:platform/:listingId", requireAuth, async (req, res) => {
 
         if (!snapshot) {
             return res.status(404).json({ error: "Score not found" });
+        }
+
+        let trustedSnapshot = null;
+        if (username) {
+            const { data, error: trustedError } = await supabase
+                .from("score_snapshots")
+                .select('\"Username\", trusted_creator_score')
+                .eq("pattern_id", pattern.id)
+                .ilike("Username", username)
+                .order("calculated_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            if (trustedError) throw trustedError;
+            trustedSnapshot = data;
         }
 
         const { data: images, error: imageError } = await supabase
@@ -98,6 +115,7 @@ router.get("/:platform/:listingId", requireAuth, async (req, res) => {
             pattern,
             score: {
                 ...snapshot,
+                ...(trustedSnapshot || {}),
                 images: images || []
             }
         });
@@ -128,6 +146,7 @@ router.post("/", requireAuth, async (req, res) => {
             .from("score_snapshots")
             .insert({
                 pattern_id: pattern.id,
+                Username: input.username,
                 total_image_score: input.score.totalImageScore ?? null,
                 description_score: input.score.descriptionScore ?? null,
                 user_reports_score: input.score.userReportsScore ?? null,
@@ -141,7 +160,7 @@ router.post("/", requireAuth, async (req, res) => {
                 scoring_version: typeof input.score.scoringVersion === "string"
                     ? input.score.scoringVersion.slice(0, 80) : null
             })
-            .select("id, aggregate_score, description_score, description_rationale, model_version, scoring_version, calculated_at")
+            .select('id, "Username", aggregate_score, description_score, description_rationale, model_version, scoring_version, calculated_at')
             .single();
         if (snapshotError) throw snapshotError;
 

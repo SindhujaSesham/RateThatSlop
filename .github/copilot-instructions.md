@@ -63,13 +63,21 @@ by default.
   rating data.
 - Server-backed signals include trusted creators, Etsy user reviews, extension
   user reports, stored listing ratings, and per-image analysis scores. These
-  are account-gated features and must use authenticated API requests.
+  are account-gated features and must use authenticated API requests, except
+  for the temporary public score-sync path documented below. The temporary
+  `/api/scores` path permits unauthenticated score reads and writes only.
+- Prefer a fresh server-stored listing rating and matching per-image result
+  over local cached or ONNX results, including for signed-out users through
+  the temporary public score-read path. A server record with a missing or
+  `NULL` aggregate, description score, or image result is incomplete: retain
+  every valid server field, compute only the missing field locally, and retry
+  the score submission when uploads are enabled. A missing server record,
+  stale record, or unavailable server must fall back to local inference
+  without blocking the scan.
 - A signed-in user may read shared listing data and contribute reports. An
-  unsigned user may use local image inference but must not access any server
-  feature or AI description evaluation.
-- Prefer a server-stored listing rating when a matching listing record is
-  available and fresh. Run local image inference when the listing is not
-  stored, the cache is stale, or the user is not signed in.
+  unsigned user may use local image inference and the temporary public score
+  read/write path, but must not access authenticated server features or AI
+  description evaluation.
 - Match stored image results by the SHA-256 image-byte hash, not by URL.
   Server image results must be checked before the local inference cache;
   matching results skip ONNX processing, while missing or stale images fall
@@ -314,6 +322,9 @@ by default.
   analyzed image files and must not be treated as listing identities. Cached
   records are valid for seven days and must be cleared on logout. Preserve
   server provenance and synchronization state when writing cached records.
+  Do not coerce server `NULL` values through `Number(null)`; preserve them as
+  `null` so the caller can distinguish an incomplete server result from a
+  valid zero score.
 - `extension/src/popup/auth-ui.js` owns login and account controls when that
   UI is implemented; it must expose signed-out and server-unavailable states
   accessibly.
@@ -334,16 +345,19 @@ by default.
   `etsyReviewsEnabled` excludes Etsy review text, ratings, and customer-review
   photos from scraping. Keep local image inference independent of these
   settings.
-- Settings must not bypass authentication. Enabling a server-related toggle
-  must still require a valid signed-in session, and disabling a toggle must
-  prevent the corresponding request rather than sending it and ignoring the
-  response. Return explicit errors or skipped statuses for disabled
-  operations.
-- Backend server routes are mounted in `backend/server.js`: authenticated
-  score reads and writes are under `/api/scores`, description evaluation is
-  under `/api/evaluate-description` (with the `/api/descriptions` route
-  retained as a compatible route group), and reports remain under
-  `/api/reports`.
+- Settings must enforce operation boundaries. During the hackathon,
+  `serverUploadEnabled` may permit unauthenticated score writes, and
+  `serverInfoEnabled` may permit unauthenticated reads only for the temporary
+  `/api/scores` listing-score path. Other server-related toggles must still
+  require a valid signed-in session.
+  Disabling a toggle must prevent the corresponding request rather than
+  sending it and ignoring the response. Return explicit errors or skipped
+  statuses for disabled operations.
+- Backend server routes are mounted in `backend/server.js`: score reads and
+  writes are under `/api/scores` and are temporarily unauthenticated for the
+  hackathon; description evaluation is under `/api/evaluate-description`
+  (with the `/api/descriptions` route retained as a compatible route group),
+  and reports remain under `/api/reports`.
   Description evaluation remains authenticated and returns the structured AI
   assessment for the popup, including the evaluator's 0-100 value, a
   normalized `descriptionScore` in the 0-1 interval, and a cleaned

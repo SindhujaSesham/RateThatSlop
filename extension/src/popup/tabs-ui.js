@@ -10,20 +10,8 @@ const scoresData = $("#scores-data");
 const scoresImages = $("#scores-images");
 const scoresHeading = $("#scores-heading");
 const descriptionAssessment = $("#scores-description-assessment");
-
-// Seller assessment display
-const sellerAssessment = document.createElement("p");
-sellerAssessment.id = "scores-seller-assessment";
-sellerAssessment.textContent = "Seller Assessment: Not Assessed";
-
-if (descriptionAssessment) {
-  descriptionAssessment.insertAdjacentElement(
-    "afterend",
-    sellerAssessment
-  );
-} else {
-  scoresData.appendChild(sellerAssessment);
-}
+const sellerAssessment = $("#scores-seller-assessment");
+//const scoresSummary = $("#scores-summary");
 
 const retryButton = $("#scores-retry");
 <<<<<<< HEAD
@@ -42,12 +30,7 @@ document.addEventListener("rts:scan-unavailable", (event) => {
     scoresEmpty.hidden = false;
   }
 });
-<<<<<<< HEAD
-
-reportLoginButton.addEventListener("click", () => showView("auth"));
-=======
 $("#scores-report-login").addEventListener("click", () => showView("auth"));
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
 
 // Display Etsy thumbnails immediately, then update scores.
 let currentImages = [];
@@ -82,27 +65,9 @@ function createScoreCard(item, index) {
   return card;
 }
 
-<<<<<<< HEAD
-function listingImagesOnly() {
-  return currentImages.filter(
-    (item) => item.listingEvidence === true
-  );
-}
-
-function renderListingImages() {
-  scoresImages.replaceChildren(
-    ...listingImagesOnly().map(
-      (item, index) => createScoreCard(item, index)
-    )
-  );
-}
-
-// Same image-only aggregation formula as background/rating.js.
-=======
 // Same image-only aggregation formula as background/rating.js:
 // 60% mean score + 40% 90th-percentile score.
 // Kept in the popup to avoid a background-module import stopping the UI.
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
 function updateScoreSummary() {
   const scores = currentImages
     .map((item) => item?.result?.score)
@@ -186,19 +151,28 @@ document.addEventListener("rts:analysis-start", (event) => {
 
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
-<<<<<<< HEAD
-
-  renderDescriptionAssessment(
-    event.detail.descriptionAssessment
-  );
-
-  renderListingImages();
-=======
   renderDescriptionAssessment(event.detail.descriptionAssessment);
+  renderSellerAssessment(event.detail.sellerAssessment);
   //scoresHeading.textContent = event.detail.title;
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
   updateScoreSummary();
+});
+
+function renderSellerAssessment(assessment) {
+  if (!sellerAssessment || !assessment) return;
+  if (assessment.status === "trusted") {
+    sellerAssessment.textContent = `${assessment.creator || "This seller"} is a trusted creator.`;
+    return;
+  }
+  if (assessment.status === "unknown") {
+    sellerAssessment.textContent = "Unknown creator. This seller is not listed as a trusted creator.";
+    return;
+  }
+  sellerAssessment.textContent = assessment.message || "Trusted creator status is unavailable.";
+}
+
+document.addEventListener("rts:seller-assessment", (event) => {
+  renderSellerAssessment(event.detail);
 });
 
 function renderDescriptionAssessment(assessment) {
@@ -223,28 +197,19 @@ function renderDescriptionAssessment(assessment) {
   }
 
   const result = assessment.result || {};
-  const score = Number(result.ai_likeness_score);
-
-  const classification =
-    typeof result.classification === "string"
-      ? result.classification
-      : "assessment complete";
-
-  const rawRationale =
-    typeof result.descriptionRationale === "string"
-      ? result.descriptionRationale
-      : result.overall_rationale;
-
-  const rationale =
-    typeof rawRationale === "string"
-      ? ` ${rawRationale
-          .replace(
-            /^\s*AI-writing likelihood:\s*\d+\s*\/\s*100(?:\s*\([^)]*\))?\.\s*/i,
-            ""
-          )
-          .trim()}`
-      : "";
-
+  const score = result.ai_likeness_score;
+  if (typeof score !== "number" || !Number.isFinite(score) || score < 0 || score > 100) {
+    descriptionAssessment.textContent = "Description has not been processed yet.";
+    return;
+  }
+  const classification = typeof result.classification === "string"
+    ? result.classification
+    : "assessment complete";
+  const rawRationale = typeof result.descriptionRationale === "string"
+    ? result.descriptionRationale : result.overall_rationale;
+  const rationale = typeof rawRationale === "string"
+    ? ` ${rawRationale.replace(/^\s*AI-writing likelihood:\s*\d+\s*\/\s*100(?:\s*\([^)]*\))?\.\s*/i, "").trim()}`
+    : "";
   descriptionAssessment.textContent =
     `AI-writing likelihood: ${score.toFixed(0)}/100 ` +
     `(${classification}).${rationale}`;
@@ -262,13 +227,8 @@ document.addEventListener("rts:analysis-progress", (event) => {
   const { index, item } = event.detail;
 
   currentImages[index] = item;
-<<<<<<< HEAD
-
-  renderListingImages();
-=======
   const oldCard = scoresImages.children[index];
   if (oldCard) oldCard.replaceWith(createScoreCard(item, index));
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
   updateScoreSummary();
 });
 
@@ -283,13 +243,8 @@ document.addEventListener("rts:analysis", (event) => {
 
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
-<<<<<<< HEAD
-
-  renderListingImages();
-=======
   //scoresHeading.textContent = event.detail.title;
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
   updateScoreSummary();
 });
 
@@ -451,12 +406,6 @@ async function loadAuthState() {
   }
 
   if (response.user) {
-<<<<<<< HEAD
-    showSignedInState(response.user.email);
-    document.dispatchEvent(
-      new Event("rts:scan-requested")
-    );
-=======
     authFeedback.textContent = `Signed in as ${response.user.email || "account"}.`;
     authSubmit.textContent = "Signed in";
     authSubmit.disabled = true;
@@ -464,7 +413,6 @@ async function loadAuthState() {
     authSignOut.hidden = false;
     setSettingsEnabled(true);
     document.dispatchEvent(new Event("rts:scan-requested"));
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
   } else {
     authSignOut.hidden = true;
     setSettingsEnabled(false);
@@ -496,18 +444,7 @@ function updateAuthMode() {
 function showSignedOutState() {
   authMode = "login";
   authForm.reset();
-<<<<<<< HEAD
-
-  authHeading.textContent = "Log in";
-  authIntro.hidden = false;
-  authForm.hidden = false;
-  authSignedIn.hidden = true;
-  authSignedInMessage.textContent = "";
-
-  reportLoginButton.hidden = false;
-=======
   authSignOut.hidden = true;
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
   authSignOut.disabled = false;
   authSubmit.disabled = false;
   authSwitch.hidden = false;
@@ -515,27 +452,6 @@ function showSignedOutState() {
   updateAuthMode();
 }
 
-<<<<<<< HEAD
-function showSignedInState(email) {
-  authHeading.textContent = "Account";
-  authIntro.hidden = true;
-  authForm.hidden = true;
-  authSwitch.hidden = true;
-  authSignedIn.hidden = false;
-
-  authSignedInMessage.textContent =
-    `You are signed in${
-      email ? ` as ${email}` : ""
-    }.`;
-
-  authFeedback.textContent = "";
-  reportLoginButton.hidden = true;
-
-  setSettingsEnabled(true);
-}
-
-=======
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
 authSwitch.addEventListener("click", () => {
   authMode =
     authMode === "login" ? "signup" : "login";
@@ -589,23 +505,12 @@ authForm.addEventListener("submit", (event) => {
         authSubmit.disabled = false;
         return;
       }
-<<<<<<< HEAD
-
-      showSignedInState(
-        response.user?.email || email
-      );
-
-      document.dispatchEvent(
-        new Event("rts:scan-requested")
-      );
-=======
       authFeedback.textContent = `Signed in as ${response.user?.email || email}.`;
       authSubmit.textContent = "Signed in";
       authSwitch.hidden = true;
       authSignOut.hidden = false;
       setSettingsEnabled(true);
       document.dispatchEvent(new Event("rts:scan-requested"));
->>>>>>> parent of 2358478 (Merge branch 'JonathonFinshingUp' into Sindhu-branch)
     })
     .catch((error) => {
       authFeedback.textContent = error.message;
