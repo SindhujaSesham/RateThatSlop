@@ -320,7 +320,7 @@ async function syncListingResult(message) {
     serverSynced: false,
   };
   if (key) await cacheListing(key, localRecord);
-  if (!await getAccessToken() || !isSettingEnabled(settings, "serverUploadEnabled")) {
+  if (!isSettingEnabled(settings, "serverUploadEnabled")) {
     return { ok: true, cached: true, score: localRecord };
   }
   const response = await apiClient.submitListingScore({
@@ -478,9 +478,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getSettings().then(async (settings) => {
       if (!isSettingEnabled(settings, "serverUploadEnabled")) {
         throw new Error("server uploads are disabled in settings");
-      }
-      if (!await getAccessToken()) {
-        return { skipped: "not-signed-in" };
       }
       return apiClient.submitListingScore(message.payload).then(async (response) => {
         const payload = message.payload;

@@ -214,6 +214,9 @@ test("splits listing identity, product information, and review/image scraping", 
   const review = {
     textContent: "Lovely pattern",
     getAttribute: (name) => name === "data-review-id" ? "r1" : null,
+    querySelector: (selector) => selector.includes("review-text-toggle-wrapper")
+      ? { textContent: "Lovely pattern" } : null,
+    querySelectorAll: () => [],
   };
   const image = makeImage({ url: "https://i.etsystatic.com/pattern.jpg" });
   const selectors = new Map([
@@ -226,7 +229,7 @@ test("splits listing identity, product information, and review/image scraping", 
     querySelectorAll: (selector) => {
       if (selector.includes("listing-page-image-carousel-component") ||
           selector.includes("main-product-image")) return [image];
-      if (selector.includes("review")) return [review];
+      if (selector === "[data-review-region]") return [review];
       if (selector.includes("description")) return [description];
       return [];
     },
