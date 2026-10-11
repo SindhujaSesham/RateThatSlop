@@ -1,3 +1,5 @@
+import { lookupTrustedCreator } from "../background/trusted-creators.js";
+
 const form = document.querySelector("#analyze-form");
 const urlInput = document.querySelector("#image-url");
 const manualFeedback = document.querySelector("#status");
@@ -117,6 +119,19 @@ function descriptionAssessmentState(listing, storedScore = null) {
   return { status: "pending", message: "Description submitted. Waiting for AI review…" };
 }
 
+function requestSellerAssessment(listing, serverResponse) {
+  const score = serverResponse?.score;
+  const assessment = lookupTrustedCreator({
+    serverChecked: serverResponse?.ok === true && serverResponse.available === true,
+    username: score?.Username ?? score?.username,
+    trustedCreatorScore: score?.trusted_creator_score ?? score?.trustedCreatorScore,
+  }, listing.seller);
+  document.dispatchEvent(new CustomEvent("rts:seller-assessment", {
+    detail: assessment,
+  }));
+  return assessment;
+}
+
 function isAuthenticationRequiredError(error) {
   return /sign-in is required for server features/i.test(error?.message || "");
 }
@@ -129,6 +144,7 @@ async function requestDescriptionAssessment(listing, storedScore = null) {
     document.dispatchEvent(new CustomEvent("rts:description-assessment", { detail: assessment }));
     return assessment;
   }
+
   const cacheKey = `${DESCRIPTION_CACHE_PREFIX}${listing.listingId || "unknown"}`;
   const cached = await chrome.storage.local.get(cacheKey);
   if (cached[cacheKey]?.fingerprint === descriptionFingerprint(description) &&
@@ -199,6 +215,7 @@ async function scanCurrentPage({ forceRefresh = false } = {}) {
       ? await chrome.runtime.sendMessage({
         kind: "aid:get-listing-score",
         listingId: listing.listingId,
+        username: listing.seller,
       })
       : null;
     const listingScore = storedScore?.ok && storedScore.available && storedScore.score
@@ -222,9 +239,11 @@ async function scanCurrentPage({ forceRefresh = false } = {}) {
         images: scoreItems,
         listingScore,
         descriptionAssessment: descriptionAssessmentState(listing),
+        sellerAssessment: { status: "pending", message: "Checking trusted creator status…" },
       }
     }));
     const descriptionPromise = requestDescriptionAssessment(listing, listingScore);
+    const sellerPromise = requestSellerAssessment(listing, storedScore);
 
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
@@ -255,6 +274,7 @@ async function scanCurrentPage({ forceRefresh = false } = {}) {
       }));
     }
     const descriptionAssessment = await descriptionPromise;
+    const sellerAssessment = await sellerPromise;
     const descriptionPercent = hasDescriptionAssessmentScore(descriptionAssessment?.result)
       ? descriptionAssessment.result.ai_likeness_score
       : null;
@@ -288,6 +308,7 @@ async function scanCurrentPage({ forceRefresh = false } = {}) {
           listingId: listing.listingId,
           listingUrl: listing.pageUrl,
           title: listing.title,
+          username: listing.seller,
           score: {
             totalImageScore: imageScore,
             descriptionScore,
@@ -316,7 +337,7 @@ async function scanCurrentPage({ forceRefresh = false } = {}) {
     }
     document.dispatchEvent(new CustomEvent("rts:analysis", {
       detail: { type: "listing", title: listing.title || "Current Etsy listing", images: scoreItems, listingScore,
-        descriptionAssessment }
+        descriptionAssessment, sellerAssessment }
     }));
   } catch (error) {
     document.dispatchEvent(new CustomEvent("rts:scan-unavailable", {

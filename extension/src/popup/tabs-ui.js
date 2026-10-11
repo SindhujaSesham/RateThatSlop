@@ -8,6 +8,7 @@ const scoresData = $("#scores-data");
 const scoresImages = $("#scores-images");
 const scoresHeading = $("#scores-heading");
 const descriptionAssessment = $("#scores-description-assessment");
+const sellerAssessment = $("#scores-seller-assessment");
 //const scoresSummary = $("#scores-summary");
 
 const retryButton = $("#scores-retry");
@@ -95,9 +96,27 @@ document.addEventListener("rts:analysis-start", (event) => {
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
   renderDescriptionAssessment(event.detail.descriptionAssessment);
+  renderSellerAssessment(event.detail.sellerAssessment);
   //scoresHeading.textContent = event.detail.title;
   renderListingImages();
   updateScoreSummary();
+});
+
+function renderSellerAssessment(assessment) {
+  if (!sellerAssessment || !assessment) return;
+  if (assessment.status === "trusted") {
+    sellerAssessment.textContent = `${assessment.creator || "This seller"} is a trusted creator.`;
+    return;
+  }
+  if (assessment.status === "unknown") {
+    sellerAssessment.textContent = "Unknown creator. This seller is not listed as a trusted creator.";
+    return;
+  }
+  sellerAssessment.textContent = assessment.message || "Trusted creator status is unavailable.";
+}
+
+document.addEventListener("rts:seller-assessment", (event) => {
+  renderSellerAssessment(event.detail);
 });
 
 function renderDescriptionAssessment(assessment) {

@@ -30,6 +30,9 @@ export function normalizeServerScore(response) {
     descriptionScore,
     descriptionRationale: typeof score.description_rationale === "string"
       ? score.description_rationale : "",
+    trustedCreatorScore: typeof score.trusted_creator_score === "number"
+      ? score.trusted_creator_score : null,
+    username: typeof score.Username === "string" ? score.Username : "",
     calculatedAt: score.calculated_at,
     modelVersion: typeof score.model_version === "string" ? score.model_version : "server",
     images: images.map((image) => ({

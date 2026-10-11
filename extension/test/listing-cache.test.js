@@ -28,6 +28,20 @@ test("server description scores are preserved when valid", () => {
     },
   });
 
+  test("server scores preserve the stored seller username", () => {
+    const normalized = normalizeServerScore({
+      score: {
+        Username: "SoftpawVintage",
+        trusted_creator_score: 1,
+        aggregate_score: 0.25,
+        calculated_at: new Date().toISOString(),
+        images: [],
+      },
+    });
+    assert.equal(normalized.username, "SoftpawVintage");
+    assert.equal(normalized.trustedCreatorScore, 1);
+  });
+
   assert.equal(normalized.descriptionScore, 0.72);
   assert.equal(normalized.descriptionRationale, "Detailed rationale");
 });
