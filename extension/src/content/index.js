@@ -7,6 +7,14 @@ const inFlightImages = new Set();
 const evaluatedReviewListings = new Set();
 let pageScanPromise = null;
 
+function sendRuntimeMessage(message) {
+  try {
+    return Promise.resolve(chrome.runtime.sendMessage(message));
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
 function isEtsyPage(location = window.location) {
   return ETSY_HOST_RE.test(location.hostname);
 }
@@ -247,7 +255,7 @@ function requestReviewEvaluation(listingId, reviewsAndImages) {
     return;
   }
   evaluatedReviewListings.add(listingId);
-  chrome.runtime.sendMessage({
+  sendRuntimeMessage({
     kind: "aid:evaluate-reviews",
     listingId,
     reviewsAndImages,
@@ -290,11 +298,14 @@ function setImageBadges(imageUrl, result) {
 async function analyzePageImages(data) {
   if (pageScanPromise) return pageScanPromise;
   pageScanPromise = (async () => {
+    const listingEvidenceImages = Array.isArray(data.listingEvidenceImages)
+      ? data.listingEvidenceImages
+      : data.listing.images;
     const imagesToAnalyze = [];
     const localCached = new Set();
     let cacheResponse;
     try {
-      cacheResponse = await chrome.runtime.sendMessage({
+      cacheResponse = await sendRuntimeMessage({
         kind: "aid:cache-lookup",
         imageUrls: data.listing.images.map((image) => image.url),
       });
@@ -325,7 +336,7 @@ async function analyzePageImages(data) {
       inFlightImages.add(image.url);
       try {
         const imageHash = cacheResponse?.hashes?.[image.url];
-        const response = await chrome.runtime.sendMessage({
+        const response = await sendRuntimeMessage({
           kind: "aid:analyze",
           imageUrl: image.url,
           imageHash,
@@ -342,11 +353,11 @@ async function analyzePageImages(data) {
       }
     }
     if (isListingPage() && data.listing.listingId) {
-      chrome.runtime.sendMessage({
+      sendRuntimeMessage({
         kind: "aid:sync-listing",
         listing: data.listing,
         images: [...analyzedResults.entries()]
-          .filter(([url]) => data.listing.images.some((image) => image.url === url))
+          .filter(([url]) => listingEvidenceImages.some((image) => image.url === url))
           .map(([url, result]) => ({ url, imageId: result.imageId, aiScore: result.score, modelVersion: result.modelVersion })),
       }).then((response) => {
         if (response?.ok === false) {
@@ -376,7 +387,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       return false;
     }
     if (message?.kind === "aid:scrape-post") {
-      chrome.runtime.sendMessage({ kind: "aid:get-settings" }).then((settingsResponse) => {
+      sendRuntimeMessage({ kind: "aid:get-settings" }).then((settingsResponse) => {
         sendResponse(scrapePostPage(document, window.location, {
           includeEtsyReviews: settingsResponse?.settings?.etsyReviewsEnabled !== false,
         }));
@@ -389,12 +400,13 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   const scan = () => {
-    chrome.runtime.sendMessage({ kind: "aid:get-settings" }).then((settingsResponse) => {
+    sendRuntimeMessage({ kind: "aid:get-settings" }).then((settingsResponse) => {
       if (settingsResponse?.settings?.scrapingEnabled === false) return;
       const data = collectPageData();
     if (data.ok && data.listing.analyzableImages.length) {
       analyzePageImages({
         ...data,
+        listingEvidenceImages: data.listing.images,
         listing: {
           ...data.listing,
           images: data.listing.analyzableImages,
@@ -405,7 +417,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
       const post = scrapePostPage(document, window.location, {
         includeEtsyReviews: settingsResponse?.settings?.etsyReviewsEnabled !== false,
       });
-      chrome.runtime.sendMessage({ kind: "aid:scrape-post", post }).catch(() => {});
+      sendRuntimeMessage({
+        kind: "aid:scrape-post",
+        post,
+      })
+        .catch(() => {});
       if (settingsResponse?.settings?.etsyReviewsEnabled !== false) {
         requestReviewEvaluation(post.identity.listingId, post.reviewsAndImages);
       }

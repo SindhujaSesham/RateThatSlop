@@ -118,6 +118,12 @@ npm install
 npm start
 ```
 
+For the hackathon demo, score reads and writes do not require a signed-in
+extension user. The backend uses its configured Supabase database key; apply
+the deployed Supabase permissions in
+[`backend/database/migrations/001_hackathon_public_score_access.sql`](./backend/database/migrations/001_hackathon_public_score_access.sql).
+Run that migration in the Supabase SQL editor before testing score saves.
+
 Routes are grouped by responsibility:
 
 - `GET /api/health` and `GET /api/test-db` are health checks.
@@ -126,11 +132,13 @@ Routes are grouped by responsibility:
 - `GET /api/scores/:platform/:listingId` retrieves the latest stored score and
   its image analyses.
 - `POST /api/scores` stores a listing identity, overall signal scores, and
-  compact per-image scores. It accepts hashes and optional URLs, never image
-  bytes.
-- `POST /api/descriptions/evaluate` evaluates description text with AI and
+  compact per-image scores. Score reads and writes are intentionally available
+  without a signed-in extension session for the hackathon demo; they accept
+  hashes and optional URLs, never image bytes.
+- `POST /api/evaluate-description` evaluates description text with AI and
   optional title, price, instructions, and attributes; authentication is
-  required.
+  required. `/api/descriptions/evaluate` remains available as a compatible
+  authenticated route.
 - `GET /api/reports/:platform/:listingId` and `POST /api/reports` provide
   authenticated report access and submission.
 

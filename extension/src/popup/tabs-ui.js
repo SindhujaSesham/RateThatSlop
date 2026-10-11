@@ -1,5 +1,4 @@
 // Scores, Supabase authentication, and local Settings preferences.
-// Authentication is NOT connected to Supabase yet.
 import { showView } from "./navigation.js";
 
 
@@ -12,6 +11,7 @@ const descriptionAssessment = $("#scores-description-assessment");
 //const scoresSummary = $("#scores-summary");
 
 const retryButton = $("#scores-retry");
+const reportLoginButton = $("#scores-report-login");
 retryButton.addEventListener("click", () => {
   $("#scores-empty-message").textContent = "Scanning this listing…";
   document.dispatchEvent(new Event("rts:scan-requested"));
@@ -22,7 +22,7 @@ document.addEventListener("rts:scan-unavailable", (event) => {
     scoresEmpty.hidden = false;
   }
 });
-$("#scores-report-login").addEventListener("click", () => showView("auth"));
+reportLoginButton.addEventListener("click", () => showView("auth"));
 
 // Display Etsy thumbnails immediately, then update each score as ONNX finishes.
 let currentImages = [];
@@ -49,11 +49,22 @@ function createScoreCard(item, index) {
   return card;
 }
 
+function listingImagesOnly() {
+  return currentImages.filter((item) => item.listingEvidence === true);
+}
+
+function renderListingImages() {
+  scoresImages.replaceChildren(
+    ...listingImagesOnly().map((item, index) => createScoreCard(item, index)),
+  );
+}
+
 // Same image-only aggregation formula as background/rating.js:
 // 60% mean score + 40% 90th-percentile score.
 // Kept in the popup to avoid a background-module import stopping the UI.
 function updateScoreSummary() {
   const scores = currentImages
+    .filter((item) => item.listingEvidence !== false)
     .map((item) => item?.result?.score)
     .filter((score) =>
       typeof score === "number" &&
@@ -85,7 +96,7 @@ document.addEventListener("rts:analysis-start", (event) => {
   scoresData.hidden = false;
   renderDescriptionAssessment(event.detail.descriptionAssessment);
   //scoresHeading.textContent = event.detail.title;
-  scoresImages.replaceChildren(...currentImages.map(createScoreCard));
+  renderListingImages();
   updateScoreSummary();
 });
 
@@ -124,8 +135,7 @@ document.addEventListener("rts:description-assessment", (event) => {
 document.addEventListener("rts:analysis-progress", (event) => {
   const { index, item } = event.detail;
   currentImages[index] = item;
-  const oldCard = scoresImages.children[index];
-  if (oldCard) oldCard.replaceWith(createScoreCard(item, index));
+  renderListingImages();
   updateScoreSummary();
 });
 
@@ -136,7 +146,7 @@ document.addEventListener("rts:analysis", (event) => {
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
   //scoresHeading.textContent = event.detail.title;
-  scoresImages.replaceChildren(...currentImages.map(createScoreCard));
+  renderListingImages();
   updateScoreSummary();
 });
 
@@ -150,8 +160,11 @@ document.addEventListener("rts:server-upload-failed", (event) => {
 let authMode = "login";
 const authForm = $("#auth-form");
 const authHeading = $("#auth-heading");
+const authIntro = $("#auth-intro");
 const authSubmit = $("#auth-submit");
 const authSwitch = $("#auth-switch");
+const authSignedIn = $("#auth-signed-in");
+const authSignedInMessage = $("#auth-signed-in-message");
 const authSignOut = $("#auth-sign-out");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
@@ -229,15 +242,10 @@ async function loadAuthState() {
   const response = await sendBackgroundMessage({ kind: "aid:get-auth-state" });
   if (!response?.ok) throw new Error(response.error || "Could not read sign-in state.");
   if (response.user) {
-    authFeedback.textContent = `Signed in as ${response.user.email || "account"}.`;
-    authSubmit.textContent = "Signed in";
-    authSubmit.disabled = true;
-    authSwitch.hidden = true;
-    authSignOut.hidden = false;
-    setSettingsEnabled(true);
+    showSignedInState(response.user.email);
     document.dispatchEvent(new Event("rts:scan-requested"));
   } else {
-    authSignOut.hidden = true;
+    showSignedOutState();
     setSettingsEnabled(false);
   }
 }
@@ -254,11 +262,28 @@ function updateAuthMode() {
 function showSignedOutState() {
   authMode = "login";
   authForm.reset();
-  authSignOut.hidden = true;
+  authHeading.textContent = "Log in";
+  authIntro.hidden = false;
+  authForm.hidden = false;
+  authSignedIn.hidden = true;
+  authSignedInMessage.textContent = "";
+  reportLoginButton.hidden = false;
   authSignOut.disabled = false;
   authSubmit.disabled = false;
   authSwitch.hidden = false;
   updateAuthMode();
+}
+
+function showSignedInState(email) {
+  authHeading.textContent = "Account";
+  authIntro.hidden = true;
+  authForm.hidden = true;
+  authSwitch.hidden = true;
+  authSignedIn.hidden = false;
+  authSignedInMessage.textContent = `You are signed in${email ? ` as ${email}` : ""}.`;
+  authFeedback.textContent = "";
+  reportLoginButton.hidden = true;
+  setSettingsEnabled(true);
 }
 
 authSwitch.addEventListener("click", () => {
@@ -283,11 +308,7 @@ authForm.addEventListener("submit", (event) => {
         authSubmit.disabled = false;
         return;
       }
-      authFeedback.textContent = `Signed in as ${response.user?.email || email}.`;
-      authSubmit.textContent = "Signed in";
-      authSwitch.hidden = true;
-      authSignOut.hidden = false;
-      setSettingsEnabled(true);
+      showSignedInState(response.user?.email || email);
       document.dispatchEvent(new Event("rts:scan-requested"));
     })
     .catch((error) => {

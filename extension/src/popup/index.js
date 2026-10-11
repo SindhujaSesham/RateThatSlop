@@ -1,10 +1,13 @@
 const form = document.querySelector("#analyze-form");
 const urlInput = document.querySelector("#image-url");
-const manualFeedback = document.querySelector("#manual-feedback");
-const manualResult = document.querySelector("#manual-result");
-const manualResultLabel = document.querySelector("#manual-result-label");
-const manualResultSummary = document.querySelector("#manual-result-summary");
-const manualResultMeta = document.querySelector("#manual-result-meta");
+const manualFeedback = document.querySelector("#status");
+const manualResult = document.querySelector("#result");
+const manualResultScore = document.querySelector("#result-score-value");
+const manualResultLabel = document.querySelector("#result-label");
+const manualResultSummary = document.querySelector("#result-summary");
+const manualResultThreshold = document.querySelector("#result-threshold");
+const manualResultModel = document.querySelector("#result-model");
+const manualResultTime = document.querySelector("#result-time");
 const analyzeButton = form.querySelector("button");
 const settingInputs = [...document.querySelectorAll("[data-setting]")];
 const DESCRIPTION_CACHE_PREFIX = "description-assessment:";
@@ -167,7 +170,7 @@ async function requestDescriptionAssessment(listing, storedScore = null) {
   }
 }
 
-async function scanCurrentPage() {
+async function scanCurrentPage({ forceRefresh = false } = {}) {
   // Avoid running two expensive listing scans at the same time.
   if (scanInProgress) return;
   scanInProgress = true;
@@ -175,8 +178,12 @@ async function scanCurrentPage() {
   try {
     await requireScrapingEnabled();
     const listing = await getCurrentEtsyPage();
-    const images = Array.isArray(listing.images) ? listing.images.slice(0, 20) : [];
-    const storedScore = listing.listingId
+    const evidenceImages = Array.isArray(listing.images) ? listing.images : [];
+    const images = Array.isArray(listing.analyzableImages) && listing.analyzableImages.length
+      ? listing.analyzableImages.slice(0, 100)
+      : evidenceImages.slice(0, 100);
+    const evidenceUrls = new Set(evidenceImages.map((image) => image.url));
+    const storedScore = !forceRefresh && listing.listingId
       ? await chrome.runtime.sendMessage({
         kind: "aid:get-listing-score",
         listingId: listing.listingId,
@@ -195,6 +202,7 @@ async function scanCurrentPage() {
       alt: image.alt || "Etsy listing image",
       result: null,
       status: "Analyzing…",
+      listingEvidence: evidenceUrls.has(image.url),
     }));
     document.dispatchEvent(new CustomEvent("rts:analysis-start", {
       detail: {
@@ -214,6 +222,7 @@ async function scanCurrentPage() {
         const response = await chrome.runtime.sendMessage({
           kind: "aid:analyze",
           imageUrl: image.url,
+          force: true,
           meta: listing,
         });
         if (!response?.ok) throw new Error(response?.error || "Analysis failed");
@@ -236,11 +245,12 @@ async function scanCurrentPage() {
     const descriptionAssessment = await descriptionPromise;
     const descriptionPercent = Number(descriptionAssessment?.result?.ai_likeness_score);
     const imageScores = scoreItems
+      .filter((item) => evidenceUrls.has(item.url))
       .map((item) => item.result)
       .filter((result) => Number.isFinite(Number(result?.score)))
       .map((result) => Number(result.score))
       .sort((a, b) => a - b);
-    if (!listingScore && imageScores.length) {
+    if ((forceRefresh || !listingScore) && imageScores.length) {
       const mean = imageScores.reduce((sum, score) => sum + score, 0) / imageScores.length;
       const position = (imageScores.length - 1) * 0.9;
       const lower = Math.floor(position);
@@ -266,7 +276,7 @@ async function scanCurrentPage() {
             scoringVersion: "1",
             descriptionRationale: descriptionRationale(descriptionAssessment?.result),
           },
-          images: scoreItems.filter((item) => item.result).map((item) => ({
+          images: scoreItems.filter((item) => evidenceUrls.has(item.url) && item.result).map((item) => ({
             imageHash: item.result.imageId,
             imageUrl: item.url,
             aiScore: item.result.score,
@@ -293,9 +303,11 @@ async function scanCurrentPage() {
       detail: { message: error.message }
     }));
     console.error("Listing scan failed:", error);
+    return false;
   } finally {
     scanInProgress = false;
   }
+  return true;
 }
 
 form.addEventListener("submit", async (event) => {
@@ -312,13 +324,14 @@ form.addEventListener("submit", async (event) => {
     if (!response?.ok) throw new Error(response?.error || "Inference failed");
     const { result } = response;
     const isAi = result.label === "likely-ai";
+    manualResultScore.textContent = `${(result.score * 100).toFixed(1)}%`;
     manualResultLabel.textContent = isAi ? "Likely AI-generated" : "Likely human-made";
     manualResultSummary.textContent = isAi
       ? "This is an automated estimate based on visual patterns."
       : "This image shows a low AI signal based on the visual analysis.";
-    manualResultMeta.textContent =
-      `Score ${(result.score * 100).toFixed(1)}% · Threshold ${(result.threshold * 100).toFixed(1)}% · ` +
-      `Model ${result.modelVersion} · ${result.processingTimeMs} ms`;
+    manualResultThreshold.textContent = `${(result.threshold * 100).toFixed(1)}%`;
+    manualResultModel.textContent = result.modelVersion;
+    manualResultTime.textContent = `${result.processingTimeMs} ms`;
     manualResult.hidden = false;
     manualFeedback.textContent = "Analysis complete.";
   } catch (error) {
@@ -329,6 +342,21 @@ form.addEventListener("submit", async (event) => {
 });
 
 export { getCurrentEtsyPage, scanCurrentPage };
+
+document.querySelector("#scan-page").addEventListener("click", async () => {
+  const scanButton = document.querySelector("#scan-page");
+  scanButton.disabled = true;
+  manualFeedback.textContent = "Scanning all eligible images on this page…";
+  try {
+    if (await scanCurrentPage({ forceRefresh: true })) {
+      manualFeedback.textContent = "Listing scan complete.";
+    }
+  } catch (error) {
+    manualFeedback.textContent = `Error: ${error.message}`;
+  } finally {
+    scanButton.disabled = false;
+  }
+});
 
 // On popup launch, scan an Etsy listing without requiring authentication.
 // For other pages, the Scores tab displays guidance instead of running a scan.
