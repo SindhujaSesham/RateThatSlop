@@ -781,3 +781,11 @@ input {
 .score-image-photo { position: relative; }
 .score-image-photo img { display: block; }
 .score-image-overlay { position: absolute; right: 5px; bottom: 5px; padding: 4px 6px; border-radius: 6px; background: rgba(43, 29, 22, .9); color: #fff; font-size: 11px; font-weight: 800; }
+
+/* Make the aggregate percentage stand out */
+#scores-heading.overall-score {
+  font-size: clamp(42px, 7vw, 64px);
+  line-height: 1.05;
+  margin: 8px 0 2px;
+  font-weight: 800;
+}
