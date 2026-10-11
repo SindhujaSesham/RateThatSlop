@@ -308,6 +308,17 @@ by default.
   execution. `backend/.env` is ignored and must never be committed or copied
   into the extension; only the Supabase URL and publishable key may be used
   to generate the extension's public build configuration.
+- Backend database access must use the Supabase server secret/service-role
+  credential, configured only as `SUPABASE_SERVICE_ROLE_KEY` or the supported
+  legacy `SUPABASE_KEY`; never use a publishable/anon key for server writes.
+  Supabase secret keys may use a non-JWT format, so do not treat failure to
+  decode a key locally as proof that it is invalid. Verify it with a
+  read-only table check and a controlled authenticated write test instead.
+- Keep the user access token and backend database credential distinct. A
+  successful authenticated route such as description evaluation proves the
+  user token is accepted, but does not prove that the backend service
+  credential can write database rows. Conversely, a database-read failure
+  does not justify changing the extension's user session.
 - `extension/src/background/listing-cache.js` owns local caching of server
   listing records and ratings. Cache keys use `etsy:<numeric-listing-id>`,
   never an image URL or unnormalized page URL. Image-byte hashes identify
@@ -362,6 +373,17 @@ by default.
   provide and apply an explicit Supabase SQL migration such as
   `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, then verify the live columns
   before diagnosing missing data as a client-cache issue.
+- Before diagnosing authenticated score/report writes, run the backend locally
+  with the ignored `backend/.env` and perform read-only checks against
+  `/api/health`, `/api/test-db`, and each application table. Do not create
+  test rows or print credentials during connectivity checks. A `200` health
+  response only proves the HTTP process is alive; a `500` from a write route
+  requires the server's underlying Supabase error from deployment logs.
+- Preserve the distinction between expected score cache misses (`404 Pattern
+  not found`), invalid user authentication (`401`), database/write failures
+  (`500`), and hosting/database timeouts (`504`, often non-JSON HTML). Do not
+  log expected cache misses as failures or replace actionable upstream errors
+  with a generic success-shaped response.
 - Keep server feature tests in `extension/test/api-client.test.js`,
   `extension/test/auth.test.js`, and
   `extension/test/listing-cache.test.js`.
