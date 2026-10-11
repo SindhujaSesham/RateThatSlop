@@ -298,6 +298,9 @@ function setImageBadges(imageUrl, result) {
 async function analyzePageImages(data) {
   if (pageScanPromise) return pageScanPromise;
   pageScanPromise = (async () => {
+    const listingEvidenceImages = Array.isArray(data.listingEvidenceImages)
+      ? data.listingEvidenceImages
+      : data.listing.images;
     const imagesToAnalyze = [];
     const localCached = new Set();
     let cacheResponse;
@@ -354,7 +357,7 @@ async function analyzePageImages(data) {
         kind: "aid:sync-listing",
         listing: data.listing,
         images: [...analyzedResults.entries()]
-          .filter(([url]) => data.listing.images.some((image) => image.url === url))
+          .filter(([url]) => listingEvidenceImages.some((image) => image.url === url))
           .map(([url, result]) => ({ url, imageId: result.imageId, aiScore: result.score, modelVersion: result.modelVersion })),
       }).then((response) => {
         if (response?.ok === false) {
@@ -403,6 +406,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
     if (data.ok && data.listing.analyzableImages.length) {
       analyzePageImages({
         ...data,
+        listingEvidenceImages: data.listing.images,
         listing: {
           ...data.listing,
           images: data.listing.analyzableImages,

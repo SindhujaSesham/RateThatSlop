@@ -49,11 +49,22 @@ function createScoreCard(item, index) {
   return card;
 }
 
+function listingImagesOnly() {
+  return currentImages.filter((item) => item.listingEvidence === true);
+}
+
+function renderListingImages() {
+  scoresImages.replaceChildren(
+    ...listingImagesOnly().map((item, index) => createScoreCard(item, index)),
+  );
+}
+
 // Same image-only aggregation formula as background/rating.js:
 // 60% mean score + 40% 90th-percentile score.
 // Kept in the popup to avoid a background-module import stopping the UI.
 function updateScoreSummary() {
   const scores = currentImages
+    .filter((item) => item.listingEvidence !== false)
     .map((item) => item?.result?.score)
     .filter((score) =>
       typeof score === "number" &&
@@ -85,7 +96,7 @@ document.addEventListener("rts:analysis-start", (event) => {
   scoresData.hidden = false;
   renderDescriptionAssessment(event.detail.descriptionAssessment);
   //scoresHeading.textContent = event.detail.title;
-  scoresImages.replaceChildren(...currentImages.map(createScoreCard));
+  renderListingImages();
   updateScoreSummary();
 });
 
@@ -124,8 +135,7 @@ document.addEventListener("rts:description-assessment", (event) => {
 document.addEventListener("rts:analysis-progress", (event) => {
   const { index, item } = event.detail;
   currentImages[index] = item;
-  const oldCard = scoresImages.children[index];
-  if (oldCard) oldCard.replaceWith(createScoreCard(item, index));
+  renderListingImages();
   updateScoreSummary();
 });
 
@@ -136,7 +146,7 @@ document.addEventListener("rts:analysis", (event) => {
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
   //scoresHeading.textContent = event.detail.title;
-  scoresImages.replaceChildren(...currentImages.map(createScoreCard));
+  renderListingImages();
   updateScoreSummary();
 });
 

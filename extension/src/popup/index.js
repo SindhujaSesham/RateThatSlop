@@ -170,7 +170,7 @@ async function requestDescriptionAssessment(listing, storedScore = null) {
   }
 }
 
-async function scanCurrentPage() {
+async function scanCurrentPage({ forceRefresh = false } = {}) {
   // Avoid running two expensive listing scans at the same time.
   if (scanInProgress) return;
   scanInProgress = true;
@@ -183,7 +183,7 @@ async function scanCurrentPage() {
       ? listing.analyzableImages.slice(0, 100)
       : evidenceImages.slice(0, 100);
     const evidenceUrls = new Set(evidenceImages.map((image) => image.url));
-    const storedScore = listing.listingId
+    const storedScore = !forceRefresh && listing.listingId
       ? await chrome.runtime.sendMessage({
         kind: "aid:get-listing-score",
         listingId: listing.listingId,
@@ -202,6 +202,7 @@ async function scanCurrentPage() {
       alt: image.alt || "Etsy listing image",
       result: null,
       status: "Analyzing…",
+      listingEvidence: evidenceUrls.has(image.url),
     }));
     document.dispatchEvent(new CustomEvent("rts:analysis-start", {
       detail: {
@@ -249,7 +250,7 @@ async function scanCurrentPage() {
       .filter((result) => Number.isFinite(Number(result?.score)))
       .map((result) => Number(result.score))
       .sort((a, b) => a - b);
-    if (!listingScore && imageScores.length) {
+    if ((forceRefresh || !listingScore) && imageScores.length) {
       const mean = imageScores.reduce((sum, score) => sum + score, 0) / imageScores.length;
       const position = (imageScores.length - 1) * 0.9;
       const lower = Math.floor(position);
@@ -347,7 +348,7 @@ document.querySelector("#scan-page").addEventListener("click", async () => {
   scanButton.disabled = true;
   manualFeedback.textContent = "Scanning all eligible images on this page…";
   try {
-    if (await scanCurrentPage()) {
+    if (await scanCurrentPage({ forceRefresh: true })) {
       manualFeedback.textContent = "Listing scan complete.";
     }
   } catch (error) {
