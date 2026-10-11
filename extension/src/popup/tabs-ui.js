@@ -1,5 +1,4 @@
 // Scores, Supabase authentication, and local Settings preferences.
-// Authentication is NOT connected to Supabase yet.
 import { showView } from "./navigation.js";
 
 
@@ -12,6 +11,7 @@ const descriptionAssessment = $("#scores-description-assessment");
 //const scoresSummary = $("#scores-summary");
 
 const retryButton = $("#scores-retry");
+const reportLoginButton = $("#scores-report-login");
 retryButton.addEventListener("click", () => {
   $("#scores-empty-message").textContent = "Scanning this listing…";
   document.dispatchEvent(new Event("rts:scan-requested"));
@@ -22,7 +22,7 @@ document.addEventListener("rts:scan-unavailable", (event) => {
     scoresEmpty.hidden = false;
   }
 });
-$("#scores-report-login").addEventListener("click", () => showView("auth"));
+reportLoginButton.addEventListener("click", () => showView("auth"));
 
 // Display Etsy thumbnails immediately, then update each score as ONNX finishes.
 let currentImages = [];
@@ -150,8 +150,11 @@ document.addEventListener("rts:server-upload-failed", (event) => {
 let authMode = "login";
 const authForm = $("#auth-form");
 const authHeading = $("#auth-heading");
+const authIntro = $("#auth-intro");
 const authSubmit = $("#auth-submit");
 const authSwitch = $("#auth-switch");
+const authSignedIn = $("#auth-signed-in");
+const authSignedInMessage = $("#auth-signed-in-message");
 const authSignOut = $("#auth-sign-out");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
@@ -237,7 +240,7 @@ async function loadAuthState() {
     setSettingsEnabled(true);
     document.dispatchEvent(new Event("rts:scan-requested"));
   } else {
-    authSignOut.hidden = true;
+    showSignedOutState();
     setSettingsEnabled(false);
   }
 }
@@ -254,11 +257,28 @@ function updateAuthMode() {
 function showSignedOutState() {
   authMode = "login";
   authForm.reset();
-  authSignOut.hidden = true;
+  authHeading.textContent = "Log in";
+  authIntro.hidden = false;
+  authForm.hidden = false;
+  authSignedIn.hidden = true;
+  authSignedInMessage.textContent = "";
+  reportLoginButton.hidden = false;
   authSignOut.disabled = false;
   authSubmit.disabled = false;
   authSwitch.hidden = false;
   updateAuthMode();
+}
+
+function showSignedInState(email) {
+  authHeading.textContent = "Account";
+  authIntro.hidden = true;
+  authForm.hidden = true;
+  authSwitch.hidden = true;
+  authSignedIn.hidden = false;
+  authSignedInMessage.textContent = `You are signed in${email ? ` as ${email}` : ""}.`;
+  authFeedback.textContent = "";
+  reportLoginButton.hidden = true;
+  setSettingsEnabled(true);
 }
 
 authSwitch.addEventListener("click", () => {
