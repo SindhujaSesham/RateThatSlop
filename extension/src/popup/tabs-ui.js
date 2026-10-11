@@ -2,12 +2,13 @@
 // Authentication is NOT connected to Supabase yet.
 import { showView } from "./navigation.js";
 
+
 const $ = (selector) => document.querySelector(selector);
 const scoresEmpty = $("#scores-empty");
 const scoresData = $("#scores-data");
 const scoresImages = $("#scores-images");
 const scoresHeading = $("#scores-heading");
-const scoresSummary = $("#scores-summary");
+//const scoresSummary = $("#scores-summary");
 
 const retryButton = $("#scores-retry");
 retryButton.addEventListener("click", () => {
@@ -46,19 +47,40 @@ function createScoreCard(item, index) {
   return card;
 }
 
+// Same image-only aggregation formula as background/rating.js:
+// 60% mean score + 40% 90th-percentile score.
+// Kept in the popup to avoid a background-module import stopping the UI.
 function updateScoreSummary() {
-  const successful = currentImages.filter((item) =>
-    item.result && Number.isFinite(Number(item.result.score))
-  ).length;
-  const completed = currentImages.filter((item) => item.status !== "Analyzing…").length;
-  scoresSummary.textContent = `${successful} of ${currentImages.length} images scored · ${completed} processed`;
+  const scores = currentImages
+    .map((item) => item?.result?.score)
+    .filter((score) =>
+      typeof score === "number" &&
+      Number.isFinite(score) &&
+      score >= 0 && score <= 1
+    )
+    .sort((a, b) => a - b);
+
+  if (scores.length === 0) {
+    scoresHeading.textContent = "—";
+    return;
+  }
+
+  const mean = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  const position = (scores.length - 1) * 0.90;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  const highRisk = scores[lower] +
+    (scores[upper] - scores[lower]) * (position - lower);
+  const aggregate = mean * 0.60 + highRisk * 0.40;
+
+  scoresHeading.textContent = `${(aggregate * 100).toFixed(1)}%`;
 }
 
 document.addEventListener("rts:analysis-start", (event) => {
   currentImages = event.detail.images.map((item) => ({ ...item }));
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
-  scoresHeading.textContent = event.detail.title;
+  //scoresHeading.textContent = event.detail.title;
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
   updateScoreSummary();
 });
@@ -76,7 +98,7 @@ document.addEventListener("rts:analysis", (event) => {
   currentImages = event.detail.images;
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
-  scoresHeading.textContent = event.detail.title;
+  //scoresHeading.textContent = event.detail.title;
   scoresImages.replaceChildren(...currentImages.map(createScoreCard));
   updateScoreSummary();
 });
