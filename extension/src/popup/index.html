@@ -90,7 +90,8 @@
 
         <section id="auth-view" class="popup-view" hidden>
           <h2 id="auth-heading">Log in</h2>
-          <p class="tab-help">Scanning works without an account. Sign in to use shared data and submit reports.</p>
+          <p id="auth-intro" class="tab-help">Scanning works without an account. Sign in to use shared data and
+            submit reports.</p>
           <form id="auth-form" class="feature-card">
             <label for="auth-email">Email</label>
             <input id="auth-email" name="email" type="email" autocomplete="email" required>
@@ -100,7 +101,12 @@
             <button id="auth-submit" class="small-action" type="submit">Log in</button>
           </form>
           <button id="auth-switch" class="text-action" type="button">Need an account? Sign up</button>
-          <button id="auth-sign-out" class="small-action" type="button" hidden>Sign out</button>
+          <div id="auth-signed-in" class="feature-card" hidden>
+            <p id="auth-signed-in-message"></p>
+            <p>You can continue browsing Etsy. Check Scores for available shared listing information, or visit
+              Settings to manage account features.</p>
+            <button id="auth-sign-out" class="small-action" type="button">Sign out</button>
+          </div>
           <p id="auth-feedback" class="tab-help" role="status" aria-live="polite"></p>
         </section>
 
