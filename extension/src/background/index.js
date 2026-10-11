@@ -366,6 +366,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
+  if (message?.kind === "aid:evaluate-reviews") {
+    getSettings().then((settings) => {
+      if (!isSettingEnabled(settings, "scrapingEnabled")) {
+        throw new Error("Etsy scraping is disabled in settings");
+      }
+      if (!isSettingEnabled(settings, "etsyReviewsEnabled")) {
+        throw new Error("Etsy reviews are disabled in settings");
+      }
+      return apiClient.evaluateReviews(message.reviewsAndImages);
+    })
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.kind === "aid:scrape-post") {
     scrapePost(message)
       .then((result) => sendResponse(result))

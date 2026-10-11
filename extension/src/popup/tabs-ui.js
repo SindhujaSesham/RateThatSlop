@@ -96,7 +96,8 @@ const authSwitch = $("#auth-switch");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
 const settingsNote = $("#settings-note");
-const deployedServerUrl = "https://rate-my-slop-xzld5.ondigitalocean.app";
+// TEMP: Use http://localhost:3000 here when testing the local backend.
+const apiServerUrl = "https://rate-my-slop-xzld5.ondigitalocean.app";
 
 function sendBackgroundMessage(message) {
   return chrome.runtime.sendMessage(message);
@@ -115,7 +116,7 @@ function setSettingsEnabled(enabled) {
 async function configureServer() {
   const configured = await sendBackgroundMessage({
     kind: "aid:configure-server",
-    serverBaseUrl: deployedServerUrl,
+    serverBaseUrl: apiServerUrl,
   });
   if (!configured?.ok) throw new Error(configured?.error || "Could not configure the API server.");
   const setup = await sendBackgroundMessage({ kind: "aid:check-sign-in-setup" });

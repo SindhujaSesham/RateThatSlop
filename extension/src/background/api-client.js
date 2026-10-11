@@ -72,6 +72,12 @@ export function createApiClient({
         body: JSON.stringify({ description, listingDetails }),
       });
     },
+    evaluateReviews(reviewsAndImages) {
+      return request("/api/reviews/evaluate", {
+        method: "POST",
+        body: JSON.stringify({ reviewsAndImages }),
+      });
+    },
     getUserReviews(platform, listingId) {
       return request(`/api/reports/${encodeURIComponent(platform)}/${encodeURIComponent(listingId)}`);
     },
