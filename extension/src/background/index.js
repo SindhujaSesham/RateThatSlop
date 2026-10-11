@@ -134,6 +134,7 @@ async function cachedResultsFor(imageUrls) {
 async function analyze(message) {
   const imageUrl = typeof message.imageUrl === "string" ? message.imageUrl : "";
   const imageData = typeof message.imageData === "string" ? message.imageData : "";
+  const force = message.force === true;
   if (!imageUrl && !imageData) throw new Error("imageUrl or imageData is required");
 
   const imageHash = typeof message.imageHash === "string"
@@ -141,10 +142,12 @@ async function analyze(message) {
     : await hashImageInputs(imageUrl, imageData);
   const key = cacheKeyFor(imageHash);
   const manifest = validateManifest(await modelManifest());
-  const serverResult = await serverImageResult(message, imageHash, manifest);
-  if (serverResult) return serverResult;
+  if (!force) {
+    const serverResult = await serverImageResult(message, imageHash, manifest);
+    if (serverResult) return serverResult;
+  }
   const cached = await cacheGet(key);
-  if (cached) return cached;
+  if (cached && !force) return cached;
   if (inflight.has(key)) return inflight.get(key);
 
   const request = (async () => {
