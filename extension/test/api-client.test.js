@@ -56,6 +56,33 @@ test("review evaluation sends the scraper payload without image bytes", async ()
 			},
 		});
 
+		test("trusted creator lookup is independent of a listing ID", async () => {
+			let requestUrl;
+			const client = createApiClient({
+				baseUrl: "https://api.example.test",
+				getToken: async () => null,
+				fetchImpl: async (url) => {
+					requestUrl = url;
+					return {
+						ok: true,
+						json: async () => ({
+							checked: true,
+							username: "SoftpawVintage",
+							trustedCreatorScore: 1,
+						}),
+					};
+				},
+			});
+
+			const result = await client.getTrustedCreator("SoftpawVintage");
+
+			assert.equal(
+				requestUrl,
+				"https://api.example.test/api/scores/trusted-creator/SoftpawVintage",
+			);
+			assert.equal(result.trustedCreatorScore, 1);
+		});
+
 		await client.getListingScore("etsy", "4383107558", "SoftpawVintage");
 
 		assert.equal(

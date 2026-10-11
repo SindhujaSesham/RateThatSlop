@@ -86,6 +86,11 @@ export function createApiClient({
         requireAuth: false,
       });
     },
+    getTrustedCreator(username) {
+      return request(`/api/scores/trusted-creator/${encodeURIComponent(username)}`, {
+        requireAuth: false,
+      });
+    },
     submitListingScore(payload) {
       return request("/api/scores", {
         method: "POST",

@@ -119,13 +119,26 @@ function descriptionAssessmentState(listing, storedScore = null) {
   return { status: "pending", message: "Description submitted. Waiting for AI review…" };
 }
 
-function requestSellerAssessment(listing, serverResponse) {
-  const score = serverResponse?.score;
-  const assessment = lookupTrustedCreator({
-    serverChecked: serverResponse?.ok === true && serverResponse.available === true,
-    username: score?.Username ?? score?.username,
-    trustedCreatorScore: score?.trusted_creator_score ?? score?.trustedCreatorScore,
-  }, listing.seller);
+async function requestSellerAssessment(listing) {
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage({
+      kind: "aid:get-trusted-creator",
+      username: listing.seller,
+    });
+  } catch (error) {
+    response = { ok: false, error: error.message };
+  }
+  const assessment = response?.ok
+    ? lookupTrustedCreator({
+      serverChecked: response.assessment?.checked === true,
+      username: response.assessment?.username,
+      trustedCreatorScore: response.assessment?.trustedCreatorScore,
+    }, listing.seller)
+    : {
+      status: "unavailable",
+      message: response?.error || "Trusted creator status could not be checked.",
+    };
   document.dispatchEvent(new CustomEvent("rts:seller-assessment", {
     detail: assessment,
   }));
@@ -243,7 +256,7 @@ async function scanCurrentPage({ forceRefresh = false } = {}) {
       }
     }));
     const descriptionPromise = requestDescriptionAssessment(listing, listingScore);
-    const sellerPromise = requestSellerAssessment(listing, storedScore);
+    const sellerPromise = requestSellerAssessment(listing);
 
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
