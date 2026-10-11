@@ -17,10 +17,13 @@ function readScoreInput(body) {
         "etsyReviewScore", "trustedCreatorScore", "aggregateScore"
     ];
     for (const field of numericFields) {
-        if (score[field] !== undefined &&
-            (typeof score[field] !== "number" || score[field] < 0 || score[field] > 1)) {
-            return { error: `${field} must be a number between 0 and 1` };
-        }
+        if (score[field] != null &&
+    (typeof score[field] !== "number" ||
+     !Number.isFinite(score[field]) ||
+     score[field] < 0 ||
+     score[field] > 1)) {
+    return { error: `${field} must be a number between 0 and 1` };
+}
     }
     const validImages = images.map((image, index) => ({
         imageIndex: index + 1,

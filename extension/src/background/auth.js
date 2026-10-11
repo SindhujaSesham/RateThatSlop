@@ -6,39 +6,32 @@ import {
 const SESSION_KEY = "serverSession";
 const AUTH_TIMEOUT_MS = 12000;
 
-async function authConfig() {
-  //const response = await fetch(chrome.runtime.getURL("src/background/build-config.json"));
-  const url = chrome.runtime.getURL("src/background/build-config.json");
+function authConfig() {
+  const supabaseUrl = defaultSupabaseUrl;
+  const publishableKey = defaultPublishableKey;
 
-console.log("Trying to fetch:", url);
+  if (
+    typeof supabaseUrl !== "string" ||
+    !/^https:\/\/[\w.-]+\.supabase\.co\/?$/i.test(supabaseUrl)
+  ) {
+    throw new Error(
+      "Supabase URL is missing from the bundled public config."
+    );
+  }
 
-let response;
+  if (
+    typeof publishableKey !== "string" ||
+    !publishableKey.trim()
+  ) {
+    throw new Error(
+      "Supabase publishable key is missing from the bundled public config."
+    );
+  }
 
-try {
-    response = await fetch(url);
-    console.log("Fetch status:", response.status);
-} catch (error) {
-    console.error("FETCH FAILED AT AUTH.JS:", error);
-    throw error;
-}
-  let builtConfig = {};
-  if (response.ok) {
-    builtConfig = await response.json();
-  } else if (response.status !== 404) {
-    throw new Error(`Generated Supabase config request failed with HTTP ${response.status}.`);
-  }
-  const supabaseUrl = typeof builtConfig.SUPABASE_URL === "string" && builtConfig.SUPABASE_URL.trim()
-    ? builtConfig.SUPABASE_URL : defaultSupabaseUrl;
-  const publishableKey = typeof builtConfig.SUPABASE_PUBLISHABLE_KEY === "string" &&
-    builtConfig.SUPABASE_PUBLISHABLE_KEY.trim()
-    ? builtConfig.SUPABASE_PUBLISHABLE_KEY : defaultPublishableKey;
-  if (typeof supabaseUrl !== "string" || !/^https:\/\/[\w.-]+\.supabase\.co\/?$/i.test(supabaseUrl)) {
-    throw new Error("Supabase URL is missing from the bundled public config.");
-  }
-  if (typeof publishableKey !== "string" || !publishableKey.trim()) {
-    throw new Error("Supabase publishable key is missing from the bundled public config.");
-  }
-  return { supabaseUrl: supabaseUrl.replace(/\/+$/, ""), publishableKey };
+  return {
+    supabaseUrl: supabaseUrl.replace(/\/+$/, ""),
+    publishableKey,
+  };
 }
 
 async function fetchAuth(url, options) {
