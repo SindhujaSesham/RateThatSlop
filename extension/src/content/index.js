@@ -4,6 +4,7 @@ const IGNORED_IMAGE_RE = /(avatar|icon|logo|sprite|badge|favicon|profile|shop[_-
 const ETSY_IMAGE_HOST_RE = /(^|\.)etsystatic\.com$/i;
 const analyzedResults = new Map();
 const inFlightImages = new Set();
+const loggedDescriptionEvaluations = new Set();
 let pageScanPromise = null;
 
 function isEtsyPage(location = window.location) {
@@ -194,6 +195,19 @@ function scrapePostPage(doc = document, location = window.location) {
   };
 }
 
+function logDescriptionEvaluation(response, listingId) {
+  const evaluation = response?.descriptionEvaluation;
+  if (!listingId || !evaluation || evaluation.skipped || loggedDescriptionEvaluations.has(listingId)) {
+    return;
+  }
+  loggedDescriptionEvaluations.add(listingId);
+  if (evaluation.result) {
+    console.info("[RateThatSlop] Description evaluation result:", evaluation.result);
+  } else if (evaluation.error) {
+    console.warn("[RateThatSlop] Description evaluation failed:", evaluation.error);
+  }
+}
+
 function setImageBadge(img, result) {
   const host = img.parentElement;
   if (!host) return;
@@ -293,6 +307,14 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       sendResponse(scrapePostPage());
       return false;
     }
+    if (message?.kind === "aid:rescrape-post" && isListingPage()) {
+      const post = scrapePostPage();
+      chrome.runtime.sendMessage({ kind: "aid:scrape-post", post })
+        .then((response) => logDescriptionEvaluation(response, post.identity?.listingId))
+        .catch(() => {});
+      sendResponse({ ok: true });
+      return false;
+    }
     return false;
   });
 }
@@ -310,7 +332,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
       });
     }
     if (isListingPage() && getListingId(document, window.location)) {
-      chrome.runtime.sendMessage({ kind: "aid:scrape-post", post: scrapePostPage() })
+      const post = scrapePostPage();
+      chrome.runtime.sendMessage({ kind: "aid:scrape-post", post })
+        .then((response) => logDescriptionEvaluation(response, post.identity?.listingId))
         .catch(() => {});
     }
   };

@@ -66,10 +66,10 @@ export function createApiClient({
     submitListingScore(payload) {
       return request("/api/scores", { method: "POST", body: JSON.stringify(payload) });
     },
-    evaluateDescription(description) {
+    evaluateDescription(description, listingDetails = {}) {
       return request("/api/descriptions/evaluate", {
         method: "POST",
-        body: JSON.stringify({ description }),
+        body: JSON.stringify({ description, listingDetails }),
       });
     },
   };

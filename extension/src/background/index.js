@@ -17,9 +17,12 @@ const MAX_IMAGES = 100;
 const CACHE_STORAGE_PREFIX = "inference:";
 const POST_STORAGE_PREFIX = "post:";
 const SCRAPING_ENABLED_KEY = "scrapingEnabled";
+const DESCRIPTION_EVALUATION_ENABLED_KEY = "descriptionEvaluationEnabled";
 const cache = new Map();
 const inflight = new Map();
 const serverListingInflight = new Map();
+const descriptionEvaluationInflight = new Map();
+const completedDescriptionEvaluations = new Map();
 let offscreenReady = null;
 let modelManifestPromise = null;
 
@@ -278,6 +281,57 @@ async function scrapePost(message) {
   return { ok: true, record };
 }
 
+async function evaluatePostDescription(post) {
+  const { [DESCRIPTION_EVALUATION_ENABLED_KEY]: enabled } = await chrome.storage.local.get(
+    DESCRIPTION_EVALUATION_ENABLED_KEY,
+  );
+  if (enabled === false) return { skipped: "disabled" };
+
+  const description = post?.productInformation?.description;
+  if (typeof description !== "string" || !description.trim()) {
+    return { skipped: "description-unavailable" };
+  }
+
+  const identity = post.identity || {};
+  const listingId = typeof identity.listingId === "string" ? identity.listingId : "";
+  if (!listingId) return { skipped: "listing-id-unavailable" };
+  const productInformation = post.productInformation || {};
+  const listingDetails = {
+    title: typeof identity.name === "string" ? identity.name : "",
+    price: typeof identity.price === "string" ? identity.price : "",
+    instructions: typeof productInformation.instructions === "string"
+      ? productInformation.instructions : "",
+    attributes: typeof productInformation.attributes === "string"
+      ? productInformation.attributes : "",
+  };
+  if (completedDescriptionEvaluations.has(listingId)) {
+    return { result: completedDescriptionEvaluations.get(listingId) };
+  }
+  if (descriptionEvaluationInflight.has(listingId)) {
+    return descriptionEvaluationInflight.get(listingId);
+  }
+
+  const request = routeDescriptionEvaluation({ description, listingDetails })
+    .then((result) => {
+      if (completedDescriptionEvaluations.size >= 300) {
+        completedDescriptionEvaluations.delete(completedDescriptionEvaluations.keys().next().value);
+      }
+      completedDescriptionEvaluations.set(listingId, result);
+      return { result };
+    })
+    .catch((error) => ({ error: error.message }))
+    .finally(() => descriptionEvaluationInflight.delete(listingId));
+  descriptionEvaluationInflight.set(listingId, request);
+  return request;
+}
+
+function routeDescriptionEvaluation(message) {
+  return apiClient.evaluateDescription(
+    message.description,
+    message.listingDetails || {},
+  );
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.kind === "aid:get-listing-score") {
     serverListing({ meta: {
@@ -294,14 +348,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.kind === "aid:evaluate-description") {
-    apiClient.evaluateDescription(message.description)
+    routeDescriptionEvaluation(message)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
   if (message?.kind === "aid:scrape-post") {
-    scrapePost(message)
-      .then((result) => sendResponse(result))
+    Promise.all([scrapePost(message), evaluatePostDescription(message.post)])
+      .then(([result, descriptionEvaluation]) => sendResponse({
+        ...result,
+        descriptionEvaluation,
+      }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }

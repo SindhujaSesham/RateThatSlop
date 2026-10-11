@@ -17,6 +17,8 @@ const scrapedData = document.querySelector("#scraped-data");
 const scrapedDataSummary = document.querySelector("#scraped-data-summary");
 const scrapedDataOutput = document.querySelector("#scraped-data-output");
 const showScrapedDataButton = document.querySelector("#show-scraped-data");
+const descriptionEvaluationToggle = document.querySelector("#description-evaluation-enabled");
+const DESCRIPTION_EVALUATION_ENABLED_KEY = "descriptionEvaluationEnabled";
 
 function resetToOpenState() {
   result.hidden = true;
@@ -42,6 +44,21 @@ function showResult(value) {
 }
 
 resetToOpenState();
+
+chrome.storage.local.get(DESCRIPTION_EVALUATION_ENABLED_KEY).then((settings) => {
+  descriptionEvaluationToggle.checked = settings[DESCRIPTION_EVALUATION_ENABLED_KEY] !== false;
+});
+
+descriptionEvaluationToggle.addEventListener("change", async () => {
+  const enabled = descriptionEvaluationToggle.checked;
+  await chrome.storage.local.set({ [DESCRIPTION_EVALUATION_ENABLED_KEY]: enabled });
+  if (!enabled) return;
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (/^https?:\/\/([^.]+\.)?etsy\.com\/listing\/\d+(?:\/|$)/i.test(tab?.url || "")) {
+    await chrome.tabs.sendMessage(tab.id, { kind: "aid:rescrape-post" }).catch(() => {});
+  }
+});
 
 function createImageResult(image, response) {
   const card = document.createElement("article");

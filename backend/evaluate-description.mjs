@@ -4,10 +4,15 @@ import { GoogleGenAI } from "@google/genai";
 const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const MODEL = "gemini-3.5-flash-lite";
 
-export async function evaluateDescription(description) {
+export async function evaluateDescription(description, listingDetails = {}) {
   if (!description?.trim()) {
     throw new Error("Description must not be empty.");
   }
+
+  const listingContext = Object.entries(listingDetails)
+    .filter(([, value]) => typeof value === "string" && value.trim())
+    .map(([key, value]) => `${key}: ${value.trim()}`)
+    .join("\n");
 
   const response = await client.models.generateContent({
     model: MODEL,
@@ -139,6 +144,12 @@ Return only valid JSON with this structure:
 The score must be an integer from 0 to 100. Use empty arrays when no relevant examples exist. Use 'not provided' or 'not assessable from supplied text' instead of inventing information.
 
 Never claim that AI authorship has been established with certainty.
+
+## ADDITIONAL LISTING DETAILS
+
+Use these details only as context for assessing the supplied product text. Do not treat them as evidence about writing style, and do not claim to have inspected information that is not included.
+
+${listingContext || "Not provided"}
 
 ## DESCRIPTION TO EVALUATE
 
