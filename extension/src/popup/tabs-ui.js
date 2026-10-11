@@ -149,6 +149,7 @@ const authSignOut = $("#auth-sign-out");
 const authFeedback = $("#auth-feedback");
 const password = $("#auth-password");
 const settingsNote = $("#settings-note");
+const diagnosticOutput = $("#diagnostic-output");
 const deployedServerUrl = "https://rate-my-slop-xzld5.ondigitalocean.app";
 
 function sendBackgroundMessage(message) {
@@ -159,6 +160,33 @@ function setSettingsEnabled(enabled) {
   document.querySelectorAll("[data-setting]").forEach((control) => {
     control.disabled = !enabled;
     control.closest(".setting-row")?.classList.toggle("locked", !enabled);
+  });
+
+  $("#server-check").addEventListener("click", async () => {
+    diagnosticOutput.hidden = false;
+    diagnosticOutput.textContent = "Running authenticated server checks…";
+    const response = await sendBackgroundMessage({ kind: "aid:run-server-diagnostics" });
+    diagnosticOutput.textContent = response?.ok
+      ? JSON.stringify(response.diagnostics, null, 2)
+      : `Server checks failed: ${response?.error || "unknown error"}`;
+  });
+
+  $("#view-logs").addEventListener("click", async () => {
+    diagnosticOutput.hidden = false;
+    const response = await sendBackgroundMessage({ kind: "aid:get-diagnostics" });
+    diagnosticOutput.textContent = response?.ok && response.logs.length
+      ? response.logs.map((entry) =>
+        `[${entry.at}] ${entry.event} ${entry.details ? JSON.stringify(entry.details) : ""}`,
+      ).join("\n")
+      : response?.ok ? "No diagnostic logs." : `Could not read logs: ${response?.error || "unknown error"}`;
+  });
+
+  $("#clear-cache").addEventListener("click", async () => {
+    const response = await sendBackgroundMessage({ kind: "aid:clear-cache" });
+    diagnosticOutput.hidden = false;
+    diagnosticOutput.textContent = response?.ok
+      ? `Cleared ${response.removed} local cache entries and diagnostic logs.`
+      : `Could not clear cache: ${response?.error || "unknown error"}`;
   });
   settingsNote.textContent = enabled
     ? "Settings are available for this signed-in session."

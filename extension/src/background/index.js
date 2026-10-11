@@ -3,6 +3,7 @@
 import { apiClient } from "./api-client.js";
 import { checkSignInSetup, clearSession, getAccessToken, getSession, signInWithPassword, signUpWithPassword } from "./auth.js";
 import { getSettings, isSettingEnabled, setSettings } from "./settings.js";
+import { clearDiagnostics, clearLocalCache, readDiagnostics, writeDiagnostic } from "./diagnostics.js";
 import {
   cacheListing,
   getCachedListing,
@@ -293,7 +294,8 @@ async function syncListingResult(message) {
       description = compactDescriptionAssessment(await apiClient.evaluateDescription(
         listing.description.trim(), descriptionDetails(listing),
       ));
-    } catch {
+    } catch (error) {
+      await writeDiagnostic("description-upload-failed", { error: error.message });
       description = null;
     }
   }
@@ -338,7 +340,19 @@ async function syncListingResult(message) {
       modelVersion: image.modelVersion,
     })),
   });
+  if (key) {
+    await cacheListing(key, {
+      ...localRecord,
+      serverSynced: true,
+      source: "server",
+    });
+  }
+  await writeDiagnostic("listing-score-uploaded", { listingId, imageCount: inputImageCount(images) });
   return { ok: true, score: response };
+}
+
+function inputImageCount(images) {
+  return Array.isArray(images) ? images.length : 0;
 }
 
 async function scrapePost(message) {
@@ -476,7 +490,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     })
       .then((score) => sendResponse({ ok: true, score }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => {
+        writeDiagnostic("listing-score-upload-failed", { error: error.message });
+        sendResponse({ ok: false, error: error.message });
+      });
     return true;
   }
   if (message?.kind === "aid:evaluate-description") {
@@ -499,7 +516,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.kind === "aid:sync-listing") {
     syncListingResult(message)
       .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => {
+        writeDiagnostic("listing-sync-failed", { error: error.message });
+        sendResponse({ ok: false, error: error.message });
+      });
     return true;
   }
   if (message?.kind === "aid:get-user-reviews") {
@@ -532,6 +552,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.kind === "aid:set-settings") {
     setSettings(message.settings).then((settings) => sendResponse({ ok: true, settings }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:get-diagnostics") {
+    readDiagnostics()
+      .then((logs) => sendResponse({ ok: true, logs }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:run-server-diagnostics") {
+    apiClient.runDiagnostics()
+      .then((diagnostics) => sendResponse({ ok: true, diagnostics }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:clear-cache") {
+    clearLocalCache()
+      .then((removed) => sendResponse({ ok: true, removed }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.kind === "aid:clear-diagnostics") {
+    clearDiagnostics()
+      .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }

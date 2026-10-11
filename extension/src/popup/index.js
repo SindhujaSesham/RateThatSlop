@@ -273,7 +273,16 @@ async function scanCurrentPage() {
             modelVersion: item.result.modelVersion,
           })),
         },
-      }).catch(() => {});
+      }).then((response) => {
+        if (response?.ok === false) {
+          throw new Error(response.error || "Score upload failed");
+        }
+      }).catch((error) => {
+        console.error("Score upload failed:", error);
+        document.dispatchEvent(new CustomEvent("rts:server-upload-failed", {
+          detail: { message: error.message },
+        }));
+      });
     }
     document.dispatchEvent(new CustomEvent("rts:analysis", {
       detail: { type: "listing", title: listing.title || "Current Etsy listing", images: scoreItems, listingScore,

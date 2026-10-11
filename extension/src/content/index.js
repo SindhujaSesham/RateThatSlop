@@ -285,7 +285,13 @@ async function analyzePageImages(data) {
         images: [...analyzedResults.entries()]
           .filter(([url]) => data.listing.images.some((image) => image.url === url))
           .map(([url, result]) => ({ url, imageId: result.imageId, aiScore: result.score, modelVersion: result.modelVersion })),
-      }).catch(() => {});
+      }).then((response) => {
+        if (response?.ok === false) {
+          console.warn("RateThatSlop could not sync listing:", response.error);
+        }
+      }).catch((error) => {
+        console.warn("RateThatSlop could not sync listing:", error);
+      });
     }
   })().finally(() => {
     pageScanPromise = null;

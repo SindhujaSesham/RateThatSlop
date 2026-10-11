@@ -109,7 +109,8 @@ See [`PRIVACY.md`](./PRIVACY.md) for the data flow and limitations.
 ## Backend API
 
 The server implementation is in [`backend/`](./backend/). Start it from that
-directory after configuring `SUPABASE_URL` and `SUPABASE_KEY` in
+directory after configuring `SUPABASE_URL` and the **Supabase `service_role`
+key** in `SUPABASE_SERVICE_ROLE_KEY` (or the legacy `SUPABASE_KEY`) in
 `.env`:
 
 ```powershell
@@ -136,3 +137,9 @@ Routes are grouped by responsibility:
 Report submissions create the listing record when necessary and upsert one
 report per authenticated user and listing. Report and score endpoints never
 accept or upload image bytes.
+
+The authenticated `GET /api/diagnostics` endpoint checks database access for
+all application tables and verifies that the signed-in user has a profile row.
+The extension Settings tab exposes this check, bounded client-side request
+logs, and a local cache clear action. Diagnostic logs contain request metadata
+and error messages only; image bytes and access tokens are never stored.

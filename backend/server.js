@@ -7,6 +7,7 @@ const scoreRoutes = require("./routes/scores");
 const healthRoutes = require("./routes/health");
 const userRoutes = require("./routes/users");
 const descriptionRoutes = require("./routes/descriptions");
+const diagnosticsRoutes = require("./routes/diagnostics");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,9 +19,11 @@ app.use(cors());
 app.use("/api", healthRoutes);
 app.use("/api", userRoutes);
 app.use("/api/patterns", patternRoutes);
+app.use("/api/reports", reportRoutes);
 app.use("/api/scores", scoreRoutes);
 app.use("/api/descriptions", descriptionRoutes);
 app.use("/api/evaluate-description", descriptionRoutes);
+app.use("/api/diagnostics", diagnosticsRoutes);
 
 
 // ============================================

@@ -123,10 +123,36 @@ ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.score_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.image_analyses ENABLE ROW LEVEL SECURITY;
 
-
--- 8. BACKEND PERMISSIONS
+-- Keep server writes available when the API uses the Supabase service_role key.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.profiles TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.patterns TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.reports TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.score_snapshots TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.image_analyses TO service_role;
 GRANT USAGE ON SCHEMA public TO service_role;
 
-GRANT SELECT ON public.patterns TO service_role;
-GRANT SELECT ON public.score_snapshots TO service_role;
-GRANT SELECT ON public.image_analyses TO service_role;
+-- Auth signup does not automatically create a profile row. Reports depend on
+-- that row, so create it transactionally whenever Supabase creates a user.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    INSERT INTO public.profiles (id, display_name)
+    VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data ->> 'display_name', NEW.email))
+    ON CONFLICT (id) DO NOTHING;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+INSERT INTO public.profiles (id, display_name)
+SELECT id, COALESCE(raw_user_meta_data ->> 'display_name', email)
+FROM auth.users
+ON CONFLICT (id) DO NOTHING;

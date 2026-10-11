@@ -345,6 +345,26 @@ input {
   min-width: 0;
 }
 
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.diagnostic-output {
+  max-height: 180px;
+  margin: 12px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--input-shadow);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--ink);
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
 .panel-header {
   margin-bottom: 4px;
 }
