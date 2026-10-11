@@ -100,107 +100,33 @@
           </section>
 
           <section id="manual-view" class="popup-view" hidden>
-          <header class="panel-header">
-            <div class="pill pill-orange">
-              <span>AI listing detector</span>
-            </div>
-            <h2 class="panel-title">Analyze a specific image</h2>
-            <p class="panel-lead">Paste an image link for a one-off check. Etsy listing image ratings appear automatically in Scores.</p>
-          </header>
-
-          <section class="account-panel" aria-labelledby="account-heading">
-            <h3 id="account-heading">Server account</h3>
-            <p id="account-state" role="status" aria-live="polite">Signed out</p>
-            <form id="account-form">
-              <label for="server-url">API server URL</label>
-              <input id="server-url" type="url" value="http://localhost:3000" required>
-              <label for="account-email">Email</label>
-              <input id="account-email" type="email" autocomplete="username" required>
-              <label for="account-password">Password</label>
-              <input id="account-password" type="password" autocomplete="current-password" required>
-              <div class="account-actions">
-                <button type="submit" id="account-submit">Sign in</button>
-                <button type="button" id="account-sign-out" hidden>Sign out</button>
-              </div>
-            </form>
-          </section>
-
-          <button id="scan-page" class="scan-button" type="button">
-            <span class="scan-button-left">
-              <span class="scan-icon-wrap" aria-hidden="true">
-                <img src="assets/scan-icon.svg" alt="" width="20" height="20">
-              </span>
-              <span class="scan-button-copy">
-                <span class="scan-button-title">Scan current listing</span>
-                <span class="scan-button-sub">Run image analysis again on demand</span>
-              </span>
-            </span>
-            <span class="scan-button-arrow" aria-hidden="true">→</span>
-          </button>
-
-          <div class="divider" role="separator"><span></span><p>Or use an image link</p><span></span></div>
-          <form id="analyze-form" class="analyze-form">
-            <label for="image-url">Direct image URL</label>
-            <div class="url-row">
+            <h2>Analyze an image</h2>
+            <p class="tab-help">Paste a direct image link for a one-off local estimate.</p>
+            <form id="analyze-form" class="feature-card">
+              <label for="image-url">Image URL</label>
               <input id="image-url" name="image-url" type="url"
                 placeholder="https://i.etsystatic.com/.../image.jpg" required>
-              <button type="submit" class="analyze-button">Analyze image</button>
+              <button type="submit" class="small-action">Analyze image</button>
+            </form>
+            <p id="manual-feedback" class="tab-help" role="status" aria-live="polite"></p>
+            <div id="manual-result" class="feature-card" hidden aria-live="polite">
+              <p class="score-caption">AI likelihood</p>
+              <h3 id="manual-result-label"></h3>
+              <p id="manual-result-summary"></p>
+              <p id="manual-result-meta"></p>
             </div>
-          </form>
-
-          <p id="status" class="status" role="status" aria-live="polite"></p>
-
-          <section class="settings-panel" aria-labelledby="settings-title">
-            <h3 id="settings-title">Feature settings</h3>
-            <p class="settings-help">All features start on. Server features still require sign-in.</p>
-            <div class="settings-list">
-              <label class="setting-row"><span>Scrape Etsy listings</span><input type="checkbox" data-setting="scrapingEnabled"></label>
-              <label class="setting-row"><span>Upload scores to server</span><input type="checkbox" data-setting="serverUploadEnabled"></label>
-              <label class="setting-row"><span>Use shared server information</span><input type="checkbox" data-setting="serverInfoEnabled"></label>
-              <label class="setting-row"><span>AI-test descriptions</span><input type="checkbox" data-setting="descriptionAiEnabled"></label>
-              <label class="setting-row"><span>Use user reviews</span><input type="checkbox" data-setting="userReviewsEnabled"></label>
-              <label class="setting-row"><span>Use Etsy reviews</span><input type="checkbox" data-setting="etsyReviewsEnabled"></label>
-            </div>
-          </section>
-
-          <section id="result" class="result-card" aria-live="polite" hidden>
-            <div class="result-score-badge">
-              <span id="result-score-value">—</span>
-            </div>
-            <div class="result-copy">
-              <p class="result-kicker">AI likelihood</p>
-              <h3 id="result-label"></h3>
-              <p id="result-summary"></p>
-              <dl class="result-meta">
-                <div><dt>Threshold</dt><dd id="result-threshold"></dd></div>
-                <div><dt>Model</dt><dd id="result-model"></dd></div>
-                <div><dt>Processing time</dt><dd id="result-time"></dd></div>
-              </dl>
-            </div>
-          </section>
-
-          <section id="page-results" class="page-results" hidden>
-            <h3>Current page</h3>
-            <p id="page-summary"></p>
-            <div id="image-results"></div>
-          </section>
-
-          <p class="footer-note">
-            <img src="assets/shield-footer.svg" alt="" width="20" height="20">
-            <span>Local analysis · No uploads · No tracking</span>
-          </p>
           </section>
 
           <section id="settings-view" class="popup-view" hidden>
             <h2>Feature settings</h2>
             <p class="tab-help">Sign in to unlock all settings. Controls remain disabled until authentication is connected.</p>
             <div class="setting-list">
-              <label class="setting-row locked"><span>Scrape Etsy listings</span><input type="checkbox" role="switch" data-setting="scrapeListings" disabled></label>
-              <label class="setting-row locked"><span>Upload scores to server</span><input type="checkbox" role="switch" data-setting="uploadScores" disabled></label>
-              <label class="setting-row locked"><span>Use shared server information</span><input type="checkbox" role="switch" data-setting="sharedInfo" disabled></label>
-              <label class="setting-row locked"><span>AI-test descriptions</span><input type="checkbox" role="switch" data-setting="aiDescriptions" disabled></label>
-              <label class="setting-row locked"><span>Use user reports</span><input type="checkbox" role="switch" data-setting="userReports" disabled></label>
-              <label class="setting-row locked"><span>Use Etsy reviews</span><input type="checkbox" role="switch" data-setting="etsyReviews" disabled></label>
+              <label class="setting-row locked"><span>Scrape Etsy listings</span><input type="checkbox" role="switch" data-setting="scrapingEnabled" disabled></label>
+              <label class="setting-row locked"><span>Upload scores to server</span><input type="checkbox" role="switch" data-setting="serverUploadEnabled" disabled></label>
+              <label class="setting-row locked"><span>Use shared server information</span><input type="checkbox" role="switch" data-setting="serverInfoEnabled" disabled></label>
+              <label class="setting-row locked"><span>AI-test descriptions</span><input type="checkbox" role="switch" data-setting="descriptionAiEnabled" disabled></label>
+              <label class="setting-row locked"><span>Use user reports</span><input type="checkbox" role="switch" data-setting="userReviewsEnabled" disabled></label>
+              <label class="setting-row locked"><span>Use Etsy reviews</span><input type="checkbox" role="switch" data-setting="etsyReviewsEnabled" disabled></label>
             </div>
             <p id="settings-note" class="tab-help" role="status">Log in to unlock settings. Authentication will be connected in the next step.</p>
           </section>

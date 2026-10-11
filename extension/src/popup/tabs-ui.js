@@ -24,6 +24,7 @@ $("#scores-report-login").addEventListener("click", () => showView("auth"));
 
 // Display Etsy thumbnails immediately, then update each score as ONNX finishes.
 let currentImages = [];
+let currentListingScore = null;
 
 function createScoreCard(item, index) {
   const card = document.createElement("article");
@@ -51,11 +52,16 @@ function updateScoreSummary() {
     item.result && Number.isFinite(Number(item.result.score))
   ).length;
   const completed = currentImages.filter((item) => item.status !== "Analyzing…").length;
-  scoresSummary.textContent = `${successful} of ${currentImages.length} images scored · ${completed} processed`;
+  const storedRating = currentListingScore
+    ? ` · Stored listing rating ${(Number(currentListingScore.overall) * 100).toFixed(1)}%`
+    : "";
+  scoresSummary.textContent =
+    `${successful} of ${currentImages.length} images scored · ${completed} processed${storedRating}`;
 }
 
 document.addEventListener("rts:analysis-start", (event) => {
   currentImages = event.detail.images.map((item) => ({ ...item }));
+  currentListingScore = event.detail.listingScore || null;
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
   scoresHeading.textContent = event.detail.title;
@@ -74,6 +80,7 @@ document.addEventListener("rts:analysis-progress", (event) => {
 document.addEventListener("rts:analysis", (event) => {
   if (event.detail.type !== "listing") return;
   currentImages = event.detail.images;
+  currentListingScore = event.detail.listingScore || null;
   scoresEmpty.hidden = true;
   scoresData.hidden = false;
   scoresHeading.textContent = event.detail.title;
