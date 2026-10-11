@@ -192,11 +192,10 @@ async function serverListing(message) {
   if (!isSettingEnabled(await getSettings(), "serverInfoEnabled")) return null;
   const listingId = typeof message?.meta?.listingId === "string"
     ? message.meta.listingId : "";
-  if (!listingId || !(await getAccessToken())) return null;
+  if (!listingId) return null;
   const key = listingKey("etsy", listingId);
   if (!key) return null;
   const cached = await getCachedListing(key);
-  if (!(await getAccessToken())) return null;
   if (cached?.calculatedAt && isFresh(cached.calculatedAt) && cached.serverSynced) {
     return cached;
   }
@@ -285,7 +284,9 @@ async function syncListingResult(message) {
   const existing = key ? await getCachedListing(key) : null;
   if (existing?.calculatedAt && isFresh(existing.calculatedAt) &&
       existing.serverSynced && Array.isArray(existing.images) &&
-      existing.images.length >= images.length) {
+      existing.images.length >= images.length &&
+      (typeof listing?.description !== "string" || !listing.description.trim() ||
+        typeof existing.descriptionScore === "number")) {
     return { ok: true, cached: true, score: existing };
   }
   const imageScore = imageAggregate(images);

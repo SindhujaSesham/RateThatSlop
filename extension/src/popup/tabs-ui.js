@@ -115,7 +115,11 @@ function renderDescriptionAssessment(assessment) {
     return;
   }
   const result = assessment.result || {};
-  const score = Number(result.ai_likeness_score);
+  const score = result.ai_likeness_score;
+  if (typeof score !== "number" || !Number.isFinite(score) || score < 0 || score > 100) {
+    descriptionAssessment.textContent = "Description has not been processed yet.";
+    return;
+  }
   const classification = typeof result.classification === "string"
     ? result.classification
     : "assessment complete";
