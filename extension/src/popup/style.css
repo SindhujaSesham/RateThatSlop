@@ -112,6 +112,12 @@ input {
   background: transparent;
 }
 
+.sidebar-blob-bottom,
+.sidebar-blob-ring-bottom {
+  top: auto;
+  bottom: -110px;
+}
+
 .sidebar-sparkle {
   position: absolute;
   top: 22px;
@@ -177,6 +183,42 @@ input {
 
 .pill-yellow {
   background: var(--yellow);
+}
+
+.slogan-callout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 9px;
+  border: 1.6px solid var(--ink);
+  border-radius: 999px;
+  background: var(--yellow);
+  box-shadow: 4px 4px 0 0 var(--ink);
+  font-family: var(--font-body);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--ink);
+  text-align: center;
+}
+
+.slogan-callout > img {
+  display: block;
+  flex: 0 0 18px;
+}
+
+.slogan-subtitle {
+  margin: 14px 0 0;
+  font-family: var(--font-display);
+  font-size: 29px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  line-height: 1.05;
+  color: var(--cream);
+  text-align: left;
 }
 
 .pill-orange {
@@ -299,15 +341,15 @@ input {
 .privacy-shield {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  overflow: hidden;
+  width: 48px;
+  height: 48px;
   flex-shrink: 0;
 }
 
 .privacy-shield img {
-  transform: scale(0.22);
-  transform-origin: center;
+  display: block;
+  width: 48px;
+  height: 48px;
 }
 
 .privacy-callout p {
