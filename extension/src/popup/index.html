@@ -13,6 +13,9 @@
     <div class="app-shell">
       <div class="app-card">
         <aside class="sidebar" aria-label="Rate That Slop brand">
+          <button id="toggle-sidebar" class="sidebar-toggle" type="button"
+            aria-label="Collapse sidebar" aria-expanded="true" aria-controls="sidebar-content">←</button>
+          <div id="sidebar-content" class="sidebar-content">
           <div class="sidebar-blob" aria-hidden="true"></div>
           <div class="sidebar-blob-ring" aria-hidden="true"></div>
           <img class="sidebar-sparkle" src="assets/sparkle.svg" alt="" width="36" height="36">
@@ -44,9 +47,28 @@
           </div>
 
           <div class="sidebar-tile" aria-hidden="true"></div>
+          </div>
         </aside>
 
         <main class="panel">
+          <nav class="popup-nav" aria-label="Popup navigation">
+            <button type="button" data-view="scores">Scores</button>
+            <button type="button" data-view="auth">Log In</button>
+            <button type="button" data-view="manual">Manual</button>
+            <button type="button" data-view="settings">Settings</button>
+          </nav>
+
+          <section id="scores-view" class="popup-view">
+            <h2>Scores</h2>
+            <p>Listing analysis results will appear here.</p>
+          </section>
+
+          <section id="auth-view" class="popup-view" hidden>
+            <h2>Log In / Sign Up</h2>
+            <p>Account functionality coming next.</p>
+          </section>
+
+          <section id="manual-view" class="popup-view" hidden>
           <header class="panel-header">
             <div class="pill pill-orange">
               <span>AI listing detector</span>
@@ -111,9 +133,17 @@
             <img src="assets/shield-footer.svg" alt="" width="20" height="20">
             <span>Local analysis · No uploads · No tracking</span>
           </p>
+          </section>
+
+          <section id="settings-view" class="popup-view" hidden>
+            <h2>Feature Settings</h2>
+            <p>Settings controls will appear here.</p>
+          </section>
         </main>
       </div>
     </div>
     <script type="module" src="index.js"></script>
+    <script type="module" src="sidebar.js"></script>
+    <script type="module" src="navigation.js"></script>
   </body>
 </html>

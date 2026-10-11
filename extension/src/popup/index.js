@@ -158,7 +158,9 @@ async function scanCurrentPage() {
 }
 
 scanButton.addEventListener("click", scanCurrentPage);
-showScrapedDataButton.addEventListener("click", showScrapedPostData);
+if (showScrapedDataButton) {
+  showScrapedDataButton.addEventListener("click", showScrapedPostData);
+}
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
