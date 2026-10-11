@@ -17,11 +17,11 @@ const context = {
 vm.runInNewContext(`${source}
 globalThis.__testApi = {
   collectPageData, getListingImages, getAnalyzableImages, isEtsyPage, isListingPage, scrapePostPage,
-  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages,
+  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages, sendRuntimeMessage,
 };`, context);
 const {
   collectPageData, getListingImages, getAnalyzableImages, isEtsyPage, isListingPage, scrapePostPage,
-  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages,
+  scrapePostIdentity, scrapeProductInformation, scrapeReviewsAndImages, sendRuntimeMessage,
 } = context.__testApi;
 
 function makeImage({ url, width = 500, height = 500, alt = "" }) {
@@ -43,6 +43,16 @@ function makeDocument(images, selectors = new Map()) {
     querySelectorAll: (selector) => selector.includes("img") ? images : [],
   };
 }
+
+test("converts a synchronously invalidated runtime into a rejected message", async () => {
+  context.chrome.runtime.sendMessage = () => {
+    throw new Error("Extension context invalidated.");
+  };
+  await assert.rejects(
+    sendRuntimeMessage({ kind: "aid:get-settings" }),
+    /Extension context invalidated/,
+  );
+});
 
 test("recognizes Etsy listing pages but rejects lookalike hosts", () => {
   assert.equal(isEtsyPage({ hostname: "www.etsy.com" }), true);
